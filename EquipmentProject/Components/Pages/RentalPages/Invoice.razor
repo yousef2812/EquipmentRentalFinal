@@ -1,0 +1,456 @@
+@page "/contracts/{ContractId:int}/invoice"
+@using EquipmentProject.Data
+@using Microsoft.EntityFrameworkCore
+@inject LocalDbContext LocalDb
+@inject NotificationService NotificationService
+
+<PageTitle>فاتورة العقد</PageTitle>
+
+<div class="invoice-shell" dir="rtl">
+    @if (isLoading)
+    {
+        <div class="invoice-card">
+            <p class="text-muted mb-0">جارٍ تحميل الفاتورة...</p>
+        </div>
+    }
+    else if (contract is null)
+    {
+        <div class="invoice-card">
+            <h3 class="mb-2">لم يتم العثور على العقد</h3>
+            <a class="simple-link" href="/contracts">العودة إلى العقود</a>
+        </div>
+    }
+    else
+    {
+        <div class="invoice-actions">
+            <a class="simple-link" href="/contracts">العودة إلى العقود</a>
+        </div>
+
+        <section class="invoice-card">
+            <div class="invoice-head">
+                <div>
+                    <h1>فاتورة عقد التأجير</h1>
+                    <div class="muted-line">رقم العقد: @contract.ContractNumber</div>
+                    <div class="muted-line">الحالة: @GetStatusLabel(contract.Status)</div>
+                </div>
+
+                <div class="invoice-totals">
+                    <div>
+                        <span>إجمالي العقد</span>
+                        <strong>@contractTotal.ToString("N2") د.ل</strong>
+                    </div>
+                    <div>
+                        <span>المدفوع</span>
+                        <strong>@paidAmount.ToString("N2") د.ل</strong>
+                    </div>
+                    <div>
+                        <span>المتبقي</span>
+                        <strong class="@(remainingAmount > 0 ? "danger-text" : "success-text")">@remainingAmount.ToString("N2") د.ل</strong>
+                    </div>
+                </div>
+            </div>
+
+            <div class="invoice-grid">
+                <div class="info-block">
+                    <h2>بيانات العميل</h2>
+                    <div>@contract.Name</div>
+                    <div>@(customer?.PhoneNumber ?? "بدون هاتف")</div>
+                    <div>@(customer?.Address ?? "بدون عنوان")</div>
+                </div>
+
+                <div class="info-block">
+                    <h2>فترة التأجير</h2>
+                    <div>البداية: @contractStartDate.ToString("yyyy/MM/dd")</div>
+                    <div>النهاية: @contractEndDate.ToString("yyyy/MM/dd")</div>
+                    <div>عدد الأيام: @rentalDays</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="invoice-card">
+            <h2 class="section-title">بنود العقد</h2>
+
+            @if (details.Count == 0)
+            {
+                <div class="empty-state">لا توجد بنود مرتبطة بهذا العقد.</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table invoice-table align-middle">
+                        <thead>
+                            <tr>
+                                <th>المعدة</th>
+                                <th>الكمية</th>
+                                <th>السعر اليومي</th>
+                                <th>الإجمالي</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in details)
+                            {
+                                <tr>
+                                    <td>@item.EquipmentName</td>
+                                    <td>@item.Quantity</td>
+                                    <td>@item.RateAtTime.ToString("N2") د.ل</td>
+                                    <td>@item.SubTotal.ToString("N2") د.ل</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+
+        <section class="invoice-card">
+            <div class="section-head">
+                <h2 class="section-title">المدفوعات</h2>
+                <a class="simple-link" href="/payments">فتح صفحة المدفوعات</a>
+            </div>
+
+            @if (payments.Count == 0)
+            {
+                <div class="empty-state">لا توجد دفعات مسجلة لهذا العقد.</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table invoice-table align-middle">
+                        <thead>
+                            <tr>
+                                <th>التاريخ</th>
+                                <th>المبلغ</th>
+                                <th>الطريقة</th>
+                                <th>الحالة</th>
+                                <th>المرجع</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var payment in payments)
+                            {
+                                <tr>
+                                    <td>@payment.PaymentDate.ToString("yyyy/MM/dd")</td>
+                                    <td>@payment.Amount.ToString("N2") د.ل</td>
+                                    <td>@GetPaymentMethodLabel(payment.PaymentMethod)</td>
+                                    <td>@GetPaymentStatusLabel(payment.PaymentStatus)</td>
+                                    <td>@(string.IsNullOrWhiteSpace(payment.RefrenceNumber) ? "—" : payment.RefrenceNumber)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+
+        <section class="invoice-card">
+            <h2 class="section-title">إضافة دفعة جديدة</h2>
+
+            @if (!string.IsNullOrWhiteSpace(formErrorMessage))
+            {
+                <div class="alert alert-danger mb-3">@formErrorMessage</div>
+            }
+
+            <EditForm Model="@paymentInput" OnValidSubmit="SavePaymentAsync">
+                <DataAnnotationsValidator />
+                <ValidationSummary class="text-danger mb-3" />
+
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">المبلغ</label>
+                        <RadzenNumeric @bind-Value="paymentInput.Amount"
+                                       Min="@(0.01m)"
+                                       Max="@(1000000m)"
+                                       Placeholder="0.00"
+                                       class="w-100" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">تاريخ الدفع</label>
+                        <RadzenDatePicker @bind-Value="paymentInput.PaymentDate"
+                                          DateFormat="yyyy/MM/dd"
+                                          class="w-100" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">طريقة الدفع</label>
+                        <RadzenDropDown @bind-Value="paymentInput.PaymentMethod"
+                                        Data="@paymentMethodOptions"
+                                        TextProperty="Label"
+                                        ValueProperty="Value"
+                                        Placeholder="اختر الطريقة"
+                                        class="w-100" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">حالة الدفع</label>
+                        <RadzenDropDown @bind-Value="paymentInput.PaymentStatus"
+                                        Data="@paymentStatusOptions"
+                                        TextProperty="Label"
+                                        ValueProperty="Value"
+                                        Placeholder="اختر الحالة"
+                                        class="w-100" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">رقم المرجع</label>
+                        <RadzenTextBox @bind-Value="paymentInput.ReferenceNumber"
+                                       Placeholder="اختياري"
+                                       class="w-100 text-start" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">ملاحظات</label>
+                        <RadzenTextBox @bind-Value="paymentInput.Notes"
+                                       Placeholder="اختياري"
+                                       class="w-100" />
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-end mt-4">
+                    <RadzenButton Text="حفظ الدفعة"
+                                  Icon="save"
+                                  ButtonType="ButtonType.Submit"
+                                  Disabled="@isSavingPayment"
+                                  ButtonStyle="ButtonStyle.Success" />
+                </div>
+            </EditForm>
+        </section>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int ContractId { get; set; }
+
+    private RentalContract? contract;
+    private Customer? customer;
+    private List<RentalDetail> details = new();
+    private List<Payment> payments = new();
+    private PaymentInputModel paymentInput = new();
+    private bool isLoading;
+    private bool isSavingPayment;
+    private string formErrorMessage = string.Empty;
+
+    private DateTime contractStartDate
+    {
+        get
+        {
+            if (contract is null)
+            {
+                return DateTime.Today;
+            }
+
+            return contract.StartDate == default ? contract.CreatedAt : contract.StartDate;
+        }
+    }
+
+    private DateTime contractEndDate
+    {
+        get
+        {
+            if (contract is null)
+            {
+                return contractStartDate;
+            }
+
+            return contract.EndDate == default ? contractStartDate : contract.EndDate;
+        }
+    }
+    private int rentalDays => Math.Max(1, (contractEndDate.Date - contractStartDate.Date).Days + 1);
+    private decimal contractTotal => contract?.TotalAmount > 0 ? contract.TotalAmount : details.Sum(d => d.SubTotal);
+    private decimal paidAmount => payments.Where(p => p.PaymentStatus == PaymentStatus.Completed).Sum(p => p.Amount);
+    private decimal remainingAmount => Math.Max(0m, contractTotal - paidAmount);
+
+    private readonly List<OptionItem<PaymentMethod>> paymentMethodOptions = new()
+    {
+        new("نقداً", PaymentMethod.Cash),
+        new("بطاقة ائتمان", PaymentMethod.CreditCard),
+        new("تحويل بنكي", PaymentMethod.BankTransfer),
+        new("محفظة إلكترونية", PaymentMethod.DigitalWallet)
+    };
+
+    private readonly List<OptionItem<PaymentStatus>> paymentStatusOptions = new()
+    {
+        new("مكتملة", PaymentStatus.Completed),
+        new("في الانتظار", PaymentStatus.Pending),
+        new("فشلت", PaymentStatus.Failed),
+        new("مستردة", PaymentStatus.Refunded)
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadInvoiceAsync();
+    }
+
+    private async Task LoadInvoiceAsync()
+    {
+        isLoading = true;
+
+        try
+        {
+            contract = await LocalDb.RentalContracts
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == ContractId);
+
+            if (contract is null)
+            {
+                details.Clear();
+                payments.Clear();
+                customer = null;
+                return;
+            }
+
+            details = await LocalDb.RentalDetails
+                .AsNoTracking()
+                .Where(d => d.RentalContractId == ContractId)
+                .OrderBy(d => d.Id)
+                .ToListAsync();
+
+            payments = await LocalDb.Payments
+                .AsNoTracking()
+                .Where(p => p.RentalContractId == ContractId)
+                .OrderByDescending(p => p.PaymentDate)
+                .ThenByDescending(p => p.Id)
+                .ToListAsync();
+
+            customer = contract.CustomerId.HasValue
+                ? await LocalDb.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == contract.CustomerId.Value)
+                : null;
+
+            ResetPaymentForm();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SavePaymentAsync()
+    {
+        formErrorMessage = string.Empty;
+
+        if (contract is null)
+        {
+            formErrorMessage = "العقد غير موجود.";
+            return;
+        }
+
+        if (paymentInput.Amount <= 0)
+        {
+            formErrorMessage = "أدخل مبلغاً صحيحاً.";
+            return;
+        }
+
+        if (paymentInput.PaymentStatus == PaymentStatus.Completed && paymentInput.Amount > remainingAmount && remainingAmount > 0)
+        {
+            formErrorMessage = "المبلغ أكبر من المتبقي على العقد.";
+            return;
+        }
+
+        isSavingPayment = true;
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            var payment = new Payment
+            {
+                Amount = paymentInput.Amount,
+                PaymentDate = paymentInput.PaymentDate.Date,
+                PaymentMethod = paymentInput.PaymentMethod,
+                PaymentStatus = paymentInput.PaymentStatus,
+                RefrenceNumber = string.IsNullOrWhiteSpace(paymentInput.ReferenceNumber) ? contract.ContractNumber : paymentInput.ReferenceNumber,
+                Notes = paymentInput.Notes,
+                RentalContractId = contract.Id,
+                ContractNumber = contract.ContractNumber,
+                CustomerName = contract.Name,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+
+            LocalDb.Payments.Add(payment);
+
+            var trackedContract = await LocalDb.RentalContracts.FirstAsync(c => c.Id == contract.Id);
+            trackedContract.UpdatedAt = now;
+
+            await LocalDb.SaveChangesAsync();
+
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Success,
+                Summary = "تم الحفظ",
+                Detail = "تم تسجيل الدفعة بنجاح.",
+                Duration = 3000
+            });
+
+            await LoadInvoiceAsync();
+        }
+        catch (Exception ex)
+        {
+            formErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isSavingPayment = false;
+        }
+    }
+
+    private void ResetPaymentForm()
+    {
+        paymentInput = new PaymentInputModel
+        {
+            PaymentDate = DateTime.Today,
+            PaymentMethod = PaymentMethod.Cash,
+            PaymentStatus = PaymentStatus.Completed,
+            Amount = remainingAmount > 0 ? remainingAmount : 0m,
+            ReferenceNumber = contract?.ContractNumber ?? string.Empty
+        };
+    }
+
+    private static string GetStatusLabel(RentalStatus status) => status switch
+    {
+        RentalStatus.Active => "نشط",
+        RentalStatus.Completed => "مغلق",
+        RentalStatus.Canceled => "ملغي",
+        RentalStatus.Overdue => "متأخر",
+        RentalStatus.Extended => "ممدد",
+        _ => status.ToString()
+    };
+
+    private static string GetPaymentMethodLabel(PaymentMethod method) => method switch
+    {
+        PaymentMethod.Cash => "نقداً",
+        PaymentMethod.CreditCard => "بطاقة",
+        PaymentMethod.BankTransfer => "تحويل بنكي",
+        PaymentMethod.DigitalWallet => "محفظة إلكترونية",
+        _ => method.ToString()
+    };
+
+    private static string GetPaymentStatusLabel(PaymentStatus status) => status switch
+    {
+        PaymentStatus.Completed => "مكتملة",
+        PaymentStatus.Pending => "في الانتظار",
+        PaymentStatus.Failed => "فشلت",
+        PaymentStatus.Refunded => "مستردة",
+        _ => status.ToString()
+    };
+
+    private sealed class PaymentInputModel
+    {
+        [Range(0.01, 1000000)]
+        public decimal Amount { get; set; }
+
+        public DateTime PaymentDate { get; set; } = DateTime.Today;
+
+        public PaymentMethod PaymentMethod { get; set; } = PaymentMethod.Cash;
+
+        public PaymentStatus PaymentStatus { get; set; } = PaymentStatus.Completed;
+
+        [MaxLength(50)]
+        public string? ReferenceNumber { get; set; }
+
+        [MaxLength(50)]
+        public string? Notes { get; set; }
+    }
+
+    private sealed record OptionItem<T>(string Label, T Value);
+}

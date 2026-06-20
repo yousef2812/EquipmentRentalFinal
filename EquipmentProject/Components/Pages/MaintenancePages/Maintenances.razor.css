@@ -1,0 +1,36 @@
+.maintenance-page .summary-card {
+    display: grid;
+    gap: 0.35rem;
+    padding: 1rem 1.1rem;
+    border-radius: 20px;
+    background: #fff;
+    border: 1px solid rgba(18, 52, 102, 0.08);
+    box-shadow: 0 14px 30px rgba(12, 23, 54, 0.06);
+}
+
+.maintenance-page .summary-card span {
+    color: #68748c;
+    font-size: 0.92rem;
+}
+
+.maintenance-page .summary-card strong {
+    color: #1d2842;
+    font-size: 1.45rem;
+}
+
+.maintenance-page .summary-card.success strong {
+    color: #18734e;
+}
+
+.maintenance-page .summary-card.warning strong {
+    color: #b17818;
+}
+
+.maintenance-page .summary-card.danger strong {
+    color: #b14b31;
+}
+
+.next-date-cell {
+    display: grid;
+    gap: 0.35rem;
+}

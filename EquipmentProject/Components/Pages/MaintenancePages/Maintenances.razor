@@ -1,0 +1,485 @@
+@page "/maintenance"
+@using EquipmentProject.Data
+@using Microsoft.EntityFrameworkCore
+@implements IDisposable
+@inject LocalDbContext LocalDb
+@inject NotificationService NotificationService
+
+<PageTitle>الصيانة</PageTitle>
+
+<div class="container mt-4 maintenance-page" dir="rtl">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4 border-bottom pb-2">
+        <div>
+            <h3 class="m-0 text-secondary">إدارة الصيانة</h3>
+            <div class="text-muted small mt-1">تسجيل الصيانة الدورية ومتابعة الاستحقاقات القادمة لكل معدة.</div>
+        </div>
+
+        <RadzenBadge BadgeKind="BadgeKind.Pill"
+                     Variant="Variant.Flat"
+                     Severity="NotificationSeverity.Info"
+                     Text="@($"{maintenances.Count} سجل")"
+                     Style="font-size: 14px; padding: 8px 12px;" />
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="summary-card">
+                <span>كل سجلات الصيانة</span>
+                <strong>@maintenances.Count</strong>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="summary-card success">
+                <span>إجمالي التكلفة</span>
+                <strong>@totalMaintenanceCost.ToString("N2") د.ل</strong>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="summary-card warning">
+                <span>خلال 7 أيام</span>
+                <strong>@upcomingCount</strong>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="summary-card danger">
+                <span>متأخرة</span>
+                <strong>@overdueCount</strong>
+            </div>
+        </div>
+    </div>
+
+    <RadzenCard Variant="Variant.Filled" class="mb-4 shadow-sm">
+        <h5 class="text-primary mb-3 fw-bold">
+            @(isEditMode ? "تعديل سجل الصيانة" : "إضافة سجل صيانة جديد")
+        </h5>
+
+        @if (equipmentOptions.Count == 0)
+        {
+            <div class="alert alert-warning mb-3">
+                لا توجد معدات بعد. أضف معدات أولاً من صفحة <a href="equipment">المعدات</a>.
+            </div>
+        }
+
+        <EditForm Model="@maintenanceModel" OnValidSubmit="HandleSubmitAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="text-danger mb-3" />
+
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">المعدة</label>
+                    <RadzenDropDown @bind-Value="maintenanceModel.EquipmentId"
+                                    Data="@equipmentOptions"
+                                    TextProperty="Label"
+                                    ValueProperty="Id"
+                                    Placeholder="اختر المعدة"
+                                    AllowClear="true"
+                                    Change="OnEquipmentChanged"
+                                    class="w-100" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">نوع الصيانة</label>
+                    <RadzenDropDown @bind-Value="maintenanceModel.MaintenanceType"
+                                    Data="@maintenanceTypeOptions"
+                                    Placeholder="اختر النوع"
+                                    AllowClear="true"
+                                    class="w-100" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">نفذها بواسطة</label>
+                    <RadzenTextBox @bind-Value="maintenanceModel.PerformedBy"
+                                   Placeholder="اسم الفني أو الجهة"
+                                   class="w-100" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">تاريخ الصيانة</label>
+                    <RadzenDatePicker @bind-Value="maintenanceModel.MaintenanceDate"
+                                      DateFormat="yyyy/MM/dd"
+                                      class="w-100" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">الصيانة القادمة</label>
+                    <RadzenDatePicker @bind-Value="maintenanceModel.NextMaintenanceDate"
+                                      DateFormat="yyyy/MM/dd"
+                                      class="w-100" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">التكلفة</label>
+                    <RadzenNumeric @bind-Value="maintenanceModel.Cost"
+                                   Min="@(0m)"
+                                   Max="@(1000000m)"
+                                   Placeholder="0.00"
+                                   class="w-100" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">حالة المعدة بعد الصيانة</label>
+                    <RadzenDropDown @bind-Value="maintenanceModel.EquipmentStatusAfterMaintenance"
+                                    Data="@conditionOptions"
+                                    TextProperty="Label"
+                                    ValueProperty="Value"
+                                    Placeholder="اختر الحالة"
+                                    class="w-100" />
+                </div>
+
+                <div class="col-md-9">
+                    <label class="form-label fw-bold">الوصف</label>
+                    <RadzenTextArea @bind-Value="maintenanceModel.Description"
+                                    Placeholder="تفاصيل ما تم عمله أو ما يجب متابعته..."
+                                    class="w-100"
+                                    Style="min-height: 92px;" />
+                </div>
+
+                <div class="col-md-3 d-flex align-items-end gap-2">
+                    @if (isEditMode)
+                    {
+                        <RadzenButton ButtonType="ButtonType.Submit" Text="تحديث" ButtonStyle="ButtonStyle.Warning" class="w-100 fw-bold" />
+                        <RadzenButton ButtonType="ButtonType.Button" Text="إلغاء" ButtonStyle="ButtonStyle.Secondary" Click="ResetForm" class="w-100 fw-bold" />
+                    }
+                    else
+                    {
+                        <RadzenButton ButtonType="ButtonType.Submit" Text="حفظ السجل" ButtonStyle="ButtonStyle.Success" class="w-100 fw-bold" Disabled="@(equipmentOptions.Count == 0)" />
+                    }
+                </div>
+            </div>
+        </EditForm>
+    </RadzenCard>
+
+    <RadzenCard Variant="Variant.Outlined" class="shadow-sm">
+        <h5 class="mb-3 text-secondary fw-bold">سجل الصيانة الحالي</h5>
+
+        <RadzenDataGrid AllowFiltering="true"
+                        FilterMode="FilterMode.Simple"
+                        AllowPaging="true"
+                        PageSize="8"
+                        AllowSorting="true"
+                        Data="@maintenances"
+                        TItem="Maintenance"
+                        ColumnWidth="170px"
+                        EmptyText="لا توجد سجلات صيانة حالياً.">
+            <Columns>
+                <RadzenDataGridColumn TItem="Maintenance" Property="EquipmentName" Title="المعدة" Frozen="true" />
+                <RadzenDataGridColumn TItem="Maintenance" Property="MaintenanceType" Title="النوع" />
+                <RadzenDataGridColumn TItem="Maintenance" Title="تاريخ الصيانة" Filterable="false">
+                    <Template Context="data">
+                        @data.MaintenanceDate.ToString("yyyy/MM/dd")
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="Maintenance" Title="الصيانة القادمة" Filterable="false">
+                    <Template Context="data">
+                        <div class="next-date-cell">
+                            <span>@data.NextMaintenanceDate.ToString("yyyy/MM/dd")</span>
+                            <RadzenBadge Variant="Variant.Flat"
+                                         Severity="@GetDueSeverity(data.NextMaintenanceDate)"
+                                         Text="@GetDueLabel(data.NextMaintenanceDate)" />
+                        </div>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="Maintenance" Property="Cost" Title="التكلفة" Filterable="false">
+                    <Template Context="data">
+                        @data.Cost.ToString("N2") د.ل
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="Maintenance" Property="PerformedBy" Title="المنفذ" Filterable="false">
+                    <Template Context="data">
+                        @(string.IsNullOrWhiteSpace(data.PerformedBy) ? "—" : data.PerformedBy)
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="Maintenance" Property="Description" Title="الوصف" Filterable="false" />
+                <RadzenDataGridColumn TItem="Maintenance" Title="إجراءات" Filterable="false" Sortable="false" Width="160px">
+                    <Template Context="item">
+                        <div class="d-flex gap-1">
+                            <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Warning" Size="ButtonSize.Small"
+                                          Click="() => PrepareForEdit(item)" Tooltip="تعديل" />
+                            <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.Small"
+                                          Click="() => DeleteMaintenanceAsync(item.Id)" Tooltip="حذف" />
+                        </div>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    </RadzenCard>
+</div>
+
+@code {
+    private List<Maintenance> maintenances = new();
+    private List<Equipment> equipments = new();
+    private List<EquipmentOption> equipmentOptions = new();
+    private MaintenanceInputModel maintenanceModel = new();
+    private bool isEditMode;
+
+    private decimal totalMaintenanceCost => maintenances.Sum(m => m.Cost);
+    private int upcomingCount => maintenances.Count(m => IsUpcoming(m.NextMaintenanceDate));
+    private int overdueCount => maintenances.Count(m => IsOverdue(m.NextMaintenanceDate));
+
+    private readonly List<string> maintenanceTypeOptions = new()
+    {
+        "صيانة دورية",
+        "فحص شامل",
+        "إصلاح ميكانيكي",
+        "إصلاح كهربائي",
+        "تنظيف ومعايرة",
+        "تبديل قطع"
+    };
+
+    private readonly List<ConditionOption> conditionOptions = new()
+    {
+        new("ممتازة", EquipmentCondition.Excellent),
+        new("جيدة", EquipmentCondition.Good),
+        new("مقبولة", EquipmentCondition.Fair),
+        new("تحتاج صيانة", EquipmentCondition.NeedsMaintenance),
+        new("تالفة", EquipmentCondition.Damaged)
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        ResetForm();
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        maintenances = await LocalDb.Maintenances
+            .AsNoTracking()
+            .OrderByDescending(m => m.MaintenanceDate)
+            .ThenByDescending(m => m.CreatedAt)
+            .ToListAsync();
+
+        equipments = await LocalDb.Equipments
+            .AsNoTracking()
+            .OrderBy(e => e.Name)
+            .ToListAsync();
+
+        equipmentOptions = equipments
+            .Select(e => new EquipmentOption(e.Id, GetEquipmentOptionLabel(e)))
+            .ToList();
+    }
+
+    private async Task HandleSubmitAsync()
+    {
+        if (maintenanceModel.EquipmentId is null)
+        {
+            ShowNotification(NotificationSeverity.Warning, "المعدة مطلوبة", "اختر المعدة قبل حفظ سجل الصيانة.");
+            return;
+        }
+
+        if (maintenanceModel.NextMaintenanceDate.Date < maintenanceModel.MaintenanceDate.Date)
+        {
+            ShowNotification(NotificationSeverity.Warning, "تحقق من التواريخ", "تاريخ الصيانة القادمة يجب أن يكون بعد أو مساويًا لتاريخ الصيانة الحالية.");
+            return;
+        }
+
+        var equipment = await LocalDb.Equipments.FirstOrDefaultAsync(e => e.Id == maintenanceModel.EquipmentId.Value);
+        if (equipment is null)
+        {
+            ShowNotification(NotificationSeverity.Error, "تعذر المتابعة", "لم يتم العثور على المعدة المختارة.");
+            await LoadDataAsync();
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        Maintenance entity;
+
+        if (isEditMode)
+        {
+            entity = await LocalDb.Maintenances.FirstAsync(m => m.Id == maintenanceModel.Id);
+            entity.UpdatedAt = now;
+        }
+        else
+        {
+            entity = new Maintenance
+            {
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+
+            LocalDb.Maintenances.Add(entity);
+        }
+
+        entity.EquipmentId = equipment.Id;
+        entity.EquipmentName = equipment.Name;
+        entity.MaintenanceDate = maintenanceModel.MaintenanceDate.Date;
+        entity.MaintenanceType = maintenanceModel.MaintenanceType;
+        entity.Cost = maintenanceModel.Cost;
+        entity.Description = maintenanceModel.Description ?? string.Empty;
+        entity.NextMaintenanceDate = maintenanceModel.NextMaintenanceDate.Date;
+        entity.PerformedBy = maintenanceModel.PerformedBy;
+
+        equipment.Status = maintenanceModel.EquipmentStatusAfterMaintenance;
+        equipment.UpdatedAt = now;
+
+        await LocalDb.SaveChangesAsync();
+
+        ShowNotification(NotificationSeverity.Success,
+            isEditMode ? "تم التحديث" : "تم الحفظ",
+            isEditMode ? "تم تحديث سجل الصيانة بنجاح." : "تم حفظ سجل الصيانة بنجاح.");
+
+        ResetForm();
+        await LoadDataAsync();
+    }
+
+    private void PrepareForEdit(Maintenance maintenance)
+    {
+        maintenanceModel = new MaintenanceInputModel
+        {
+            Id = maintenance.Id,
+            EquipmentId = maintenance.EquipmentId,
+            EquipmentName = maintenance.EquipmentName,
+            MaintenanceDate = maintenance.MaintenanceDate,
+            MaintenanceType = maintenance.MaintenanceType,
+            Cost = maintenance.Cost,
+            Description = maintenance.Description,
+            NextMaintenanceDate = maintenance.NextMaintenanceDate,
+            PerformedBy = maintenance.PerformedBy
+        };
+
+        var equipment = equipments.FirstOrDefault(e => e.Id == maintenance.EquipmentId);
+        maintenanceModel.EquipmentStatusAfterMaintenance = equipment?.Status ?? EquipmentCondition.Good;
+        isEditMode = true;
+    }
+
+    private void OnEquipmentChanged(object? value)
+    {
+        if (value is not int id)
+        {
+            return;
+        }
+
+        var equipment = equipments.FirstOrDefault(e => e.Id == id);
+        if (equipment is null)
+        {
+            return;
+        }
+
+        maintenanceModel.EquipmentName = equipment.Name;
+        maintenanceModel.EquipmentStatusAfterMaintenance = equipment.Status == EquipmentCondition.NeedsMaintenance
+            ? EquipmentCondition.Good
+            : equipment.Status;
+    }
+
+    private async Task DeleteMaintenanceAsync(int id)
+    {
+        var maintenance = await LocalDb.Maintenances.FindAsync(id);
+        if (maintenance is null)
+        {
+            return;
+        }
+
+        if (isEditMode && maintenanceModel.Id == id)
+        {
+            ResetForm();
+        }
+
+        LocalDb.Maintenances.Remove(maintenance);
+        await LocalDb.SaveChangesAsync();
+        await LoadDataAsync();
+
+        ShowNotification(NotificationSeverity.Error, "تم الحذف", "تم حذف سجل الصيانة بنجاح.");
+    }
+
+    private void ResetForm()
+    {
+        maintenanceModel = new MaintenanceInputModel
+        {
+            MaintenanceDate = DateTime.Today,
+            NextMaintenanceDate = DateTime.Today.AddMonths(1),
+            EquipmentStatusAfterMaintenance = EquipmentCondition.Good
+        };
+        isEditMode = false;
+    }
+
+    private static NotificationSeverity GetDueSeverity(DateTime nextDate)
+    {
+        if (IsOverdue(nextDate))
+        {
+            return NotificationSeverity.Error;
+        }
+
+        if (IsUpcoming(nextDate))
+        {
+            return NotificationSeverity.Warning;
+        }
+
+        return NotificationSeverity.Success;
+    }
+
+    private static string GetDueLabel(DateTime nextDate)
+    {
+        if (IsOverdue(nextDate))
+        {
+            return "متأخرة";
+        }
+
+        if (IsUpcoming(nextDate))
+        {
+            return "قريبة";
+        }
+
+        return "مجدولة";
+    }
+
+    private static bool IsOverdue(DateTime nextDate) => nextDate.Date < DateTime.Today;
+
+    private static bool IsUpcoming(DateTime nextDate)
+    {
+        var today = DateTime.Today;
+        return nextDate.Date >= today && nextDate.Date <= today.AddDays(7);
+    }
+
+    private static string GetEquipmentOptionLabel(Equipment equipment)
+    {
+        var serial = string.IsNullOrWhiteSpace(equipment.SerialNumber) ? string.Empty : $" - {equipment.SerialNumber}";
+        return $"{equipment.Name}{serial}";
+    }
+
+    private void ShowNotification(NotificationSeverity severity, string summary, string detail)
+    {
+        NotificationService.Notify(new NotificationMessage
+        {
+            Severity = severity,
+            Summary = summary,
+            Detail = detail,
+            Duration = 4000
+        });
+    }
+
+    public void Dispose()
+    {
+    }
+
+    private sealed class MaintenanceInputModel
+    {
+        public int Id { get; set; }
+
+        [Range(1, int.MaxValue, ErrorMessage = "اختر المعدة.")]
+        public int? EquipmentId { get; set; }
+
+        public string EquipmentName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "أدخل نوع الصيانة.")]
+        public string MaintenanceType { get; set; } = string.Empty;
+
+        public DateTime MaintenanceDate { get; set; } = DateTime.Today;
+
+        public DateTime NextMaintenanceDate { get; set; } = DateTime.Today.AddMonths(1);
+
+        [Range(0, 1000000)]
+        public decimal Cost { get; set; }
+
+        [MaxLength(500)]
+        public string? Description { get; set; }
+
+        [MaxLength(100)]
+        public string? PerformedBy { get; set; }
+
+        public EquipmentCondition EquipmentStatusAfterMaintenance { get; set; } = EquipmentCondition.Good;
+    }
+
+    private sealed record EquipmentOption(int Id, string Label);
+
+    private sealed record ConditionOption(string Label, EquipmentCondition Value);
+}

@@ -1,0 +1,256 @@
+@page "/categories"
+@using EquipmentProject.Data
+@using Microsoft.EntityFrameworkCore
+@using SharedEquipment.Models
+@inject LocalDbContext LocalDb
+@inject NotificationService NotificationService
+
+<div class="container mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
+        <h3 class="m-0 text-secondary">إدارة الفئات</h3>
+        <RadzenBadge BadgeKind="BadgeKind.Pill"
+                     Variant="Variant.Flat"
+                     Severity="NotificationSeverity.Info"
+                     Text="@($"{categories.Count} فئة")"
+                     Style="font-size: 14px; padding: 8px 12px;" />
+    </div>
+
+    <RadzenCard Variant="Variant.Filled" class="mb-4 shadow-sm">
+        <h5 class="text-primary mb-3 fw-bold">
+            @(isEditMode ? "تعديل بيانات الفئة" : "إضافة فئة جديدة")
+        </h5>
+
+        @if (!string.IsNullOrWhiteSpace(formErrorMessage))
+        {
+            <div class="alert alert-danger mb-3">@formErrorMessage</div>
+        }
+
+        <EditForm Model="@categoryModel" OnValidSubmit="HandleSubmitAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="text-danger mb-3" />
+
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">اسم الفئة</label>
+                    <RadzenTextBox @bind-Value="categoryModel.Name"
+                                   Placeholder="مثال: حفارات أو مولدات"
+                                   class="w-100" />
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label fw-bold">الوصف</label>
+                    <RadzenTextBox @bind-Value="categoryModel.Description"
+                                   Placeholder="وصف مختصر للفئة"
+                                   class="w-100" />
+                </div>
+                <div class="col-md-3 ms-auto d-flex align-items-end gap-2">
+                    @if (isEditMode)
+                    {
+                        <RadzenButton ButtonType="ButtonType.Submit"
+                                      Text="تحديث"
+                                      ButtonStyle="ButtonStyle.Warning"
+                                      class="w-100 fw-bold" />
+                        <RadzenButton ButtonType="ButtonType.Button"
+                                      Text="إلغاء"
+                                      ButtonStyle="ButtonStyle.Secondary"
+                                      Click="CancelEdit"
+                                      class="w-100 fw-bold" />
+                    }
+                    else
+                    {
+                        <RadzenButton ButtonType="ButtonType.Submit"
+                                      Text="حفظ الفئة"
+                                      ButtonStyle="ButtonStyle.Success"
+                                      class="w-100 fw-bold" />
+                    }
+                </div>
+            </div>
+        </EditForm>
+    </RadzenCard>
+
+    <RadzenCard Variant="Variant.Outlined" class="shadow-sm">
+        <h5 class="mb-3 text-secondary fw-bold">قائمة الفئات</h5>
+
+        <RadzenDataGrid AllowFiltering="true"
+                        FilterMode="FilterMode.Simple"
+                        AllowPaging="true"
+                        PageSize="8"
+                        AllowSorting="true"
+                        Data="@categories"
+                        TItem="Category"
+                        ColumnWidth="200px"
+                        EmptyText="لا توجد فئات مسجلة حالياً.">
+            <Columns>
+                <RadzenDataGridColumn TItem="Category" Property="Id" Title="#" Width="60px" Frozen="true" />
+                <RadzenDataGridColumn TItem="Category" Property="Name" Title="اسم الفئة" Frozen="true" />
+                <RadzenDataGridColumn TItem="Category" Property="Description" Title="الوصف" Filterable="false" />
+                <RadzenDataGridColumn TItem="Category" Title="تاريخ الإضافة" Filterable="false">
+                    <Template Context="data">
+                        @data.CreatedAt.ToLocalTime().ToString("g")
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="Category" Title="إجراءات" Filterable="false" Sortable="false" Width="160px">
+                    <Template Context="cat">
+                        <div class="d-flex gap-1">
+                            <RadzenButton Icon="edit"
+                                          ButtonStyle="ButtonStyle.Warning"
+                                          Size="ButtonSize.Small"
+                                          Click="() => PrepareForEdit(cat)"
+                                          Tooltip="تعديل" />
+                            <RadzenButton Icon="delete"
+                                          ButtonStyle="ButtonStyle.Danger"
+                                          Size="ButtonSize.Small"
+                                          Click="() => DeleteCategoryAsync(cat.Id)"
+                                          Tooltip="حذف" />
+                        </div>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    </RadzenCard>
+</div>
+
+@code {
+    private List<Category> categories = new();
+    private Category categoryModel = CreateEmptyCategory();
+    private bool isEditMode;
+    private string formErrorMessage = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCategoriesAsync();
+    }
+
+    private async Task LoadCategoriesAsync()
+    {
+        categories = await LocalDb.Categories
+            .AsNoTracking()
+            .OrderByDescending(c => c.CreatedAt)
+            .ToListAsync();
+    }
+
+    private async Task HandleSubmitAsync()
+    {
+        formErrorMessage = string.Empty;
+        NormalizeCategory();
+
+        if (!ValidateCategory())
+        {
+            return;
+        }
+
+        var categoryName = categoryModel.Name.ToLowerInvariant();
+        var duplicateName = await LocalDb.Categories
+            .AsNoTracking()
+            .AnyAsync(c => c.Id != categoryModel.Id && c.Name.ToLower() == categoryName);
+
+        if (duplicateName)
+        {
+            formErrorMessage = "اسم الفئة مسجل مسبقاً.";
+            return;
+        }
+
+        categoryModel.UpdatedAt = DateTime.UtcNow;
+
+        if (isEditMode)
+        {
+            LocalDb.Categories.Update(categoryModel);
+            ShowNotification(NotificationSeverity.Success, "تم التحديث", "تم تحديث بيانات الفئة بنجاح.");
+        }
+        else
+        {
+            categoryModel.CreatedAt = DateTime.UtcNow;
+            await LocalDb.Categories.AddAsync(categoryModel);
+            ShowNotification(NotificationSeverity.Success, "تم الحفظ", "تمت إضافة الفئة بنجاح.");
+        }
+
+        await LocalDb.SaveChangesAsync();
+        await CancelEdit();
+        await LoadCategoriesAsync();
+    }
+
+    private void PrepareForEdit(Category category)
+    {
+        formErrorMessage = string.Empty;
+        categoryModel = CloneCategory(category);
+        isEditMode = true;
+    }
+
+    private Task CancelEdit()
+    {
+        formErrorMessage = string.Empty;
+        categoryModel = CreateEmptyCategory();
+        isEditMode = false;
+        return Task.CompletedTask;
+    }
+
+    private async Task DeleteCategoryAsync(int id)
+    {
+        if (categoryModel.Id == id)
+        {
+            await CancelEdit();
+        }
+
+        var hasEquipment = await LocalDb.Equipments
+            .AsNoTracking()
+            .AnyAsync(e => e.EquipmentCategoryId == id);
+
+        if (hasEquipment)
+        {
+            ShowNotification(NotificationSeverity.Warning, "لا يمكن الحذف", "هذه الفئة مرتبطة بمعدات موجودة.");
+            return;
+        }
+
+        var category = await LocalDb.Categories.FindAsync(id);
+        if (category is null)
+        {
+            return;
+        }
+
+        LocalDb.Categories.Remove(category);
+        await LocalDb.SaveChangesAsync();
+        await LoadCategoriesAsync();
+
+        ShowNotification(NotificationSeverity.Success, "تم الحذف", "تم حذف الفئة بنجاح.");
+    }
+
+    private void NormalizeCategory()
+    {
+        categoryModel.Name = categoryModel.Name.Trim();
+        categoryModel.Description = categoryModel.Description?.Trim();
+    }
+
+    private bool ValidateCategory()
+    {
+        if (string.IsNullOrWhiteSpace(categoryModel.Name))
+        {
+            formErrorMessage = "يرجى إدخال اسم الفئة.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static Category CloneCategory(Category category) => new()
+    {
+        Id = category.Id,
+        Name = category.Name,
+        Description = category.Description,
+        Icon = category.Icon,
+        CreatedAt = category.CreatedAt,
+        UpdatedAt = category.UpdatedAt,
+        CreatedBy = category.CreatedBy
+    };
+
+    private static Category CreateEmptyCategory() => new();
+
+    private void ShowNotification(NotificationSeverity severity, string summary, string detail)
+    {
+        NotificationService.Notify(new NotificationMessage
+        {
+            Severity = severity,
+            Summary = summary,
+            Detail = detail,
+            Duration = 4000
+        });
+    }
+}

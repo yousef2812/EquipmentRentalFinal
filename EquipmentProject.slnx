@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="EquipmentAPI/EquipmentAPI.csproj" />
+  <Project Path="EquipmentProject/EquipmentProject.csproj">
+    <Deploy Solution="Debug|*" />
+  </Project>
+  <Project Path="SharedEquipment/SharedEquipment.csproj" />
+</Solution>

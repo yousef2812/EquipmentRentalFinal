@@ -1,0 +1,940 @@
+@page "/contracts"
+@using EquipmentProject.Data
+@using Microsoft.EntityFrameworkCore
+@implements IDisposable
+@inject LocalDbContext LocalDb
+@inject NavigationManager Navigation
+@inject NotificationService NotificationService
+
+<PageTitle>العقود</PageTitle>
+
+<div class="container mt-4 contracts-page" dir="rtl">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4 border-bottom pb-2">
+        <div>
+            <h3 class="m-0 text-secondary">إدارة عقود التأجير</h3>
+            <div class="text-muted small mt-1">ربط العميل بالمعدة والدفعة الأولى في عقد واحد واضح.</div>
+        </div>
+
+        <RadzenBadge BadgeKind="BadgeKind.Pill"
+                     Variant="Variant.Flat"
+                     Severity="NotificationSeverity.Info"
+                     Text="@($"{contracts.Count} عقد")"
+                     Style="font-size: 14px; padding: 8px 12px;" />
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="summary-card">
+                <span>العقود النشطة</span>
+                <strong>@activeContractsCount</strong>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="summary-card danger">
+                <span>العقود المتأخرة</span>
+                <strong>@overdueContractsCount</strong>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="summary-card success">
+                <span>المحصل من العقود</span>
+                <strong>@collectedAmount.ToString("N2") د.ل</strong>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="summary-card warning">
+                <span>المتبقي للتحصيل</span>
+                <strong>@outstandingBalance.ToString("N2") د.ل</strong>
+            </div>
+        </div>
+    </div>
+
+    <RadzenCard Variant="Variant.Filled" class="mb-4 shadow-sm contract-form-card">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+            <div>
+                <h5 class="text-primary mb-1 fw-bold">إنشاء عقد جديد</h5>
+                <div class="text-muted small">اختر العميل والمعدات وفترة التأجير وسيتم حفظ الدفعة الأولى تلقائياً إن وجدت.</div>
+            </div>
+
+            <div class="draft-metrics">
+                <div class="metric-pill">
+                    <span>عدد الأيام</span>
+                    <strong>@rentalDays</strong>
+                </div>
+                <div class="metric-pill">
+                    <span>إجمالي العقد</span>
+                    <strong>@draftTotalAmount.ToString("N2") د.ل</strong>
+                </div>
+                <div class="metric-pill">
+                    <span>المتبقي</span>
+                    <strong>@draftRemainingAmount.ToString("N2") د.ل</strong>
+                </div>
+            </div>
+        </div>
+
+        @if (customers.Count == 0)
+        {
+            <div class="alert alert-warning mb-3">
+                لا يمكن إنشاء عقد قبل إضافة عميل واحد على الأقل من صفحة <a href="customers">العملاء</a>.
+            </div>
+        }
+
+        @if (availableEquipmentOptions.Count == 0)
+        {
+            <div class="alert alert-warning mb-3">
+                لا توجد معدات متاحة حالياً للتأجير. أضف معدات من صفحة <a href="equipment">المعدات</a> أو أعد فتح المعدات المتاحة.
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(formErrorMessage))
+        {
+            <div class="alert alert-danger mb-3">@formErrorMessage</div>
+        }
+
+        <EditForm Model="@contractModel" OnValidSubmit="CreateContractAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="text-danger mb-3" />
+
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">العميل</label>
+                    <RadzenDropDown @bind-Value="contractModel.CustomerId"
+                                    Data="@customerOptions"
+                                    TextProperty="Label"
+                                    ValueProperty="Value"
+                                    Placeholder="اختر العميل"
+                                    AllowClear="true"
+                                    class="w-100" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">تاريخ البداية</label>
+                    <RadzenDatePicker @bind-Value="contractModel.StartDate"
+                                      DateFormat="yyyy/MM/dd"
+                                      class="w-100" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">تاريخ النهاية</label>
+                    <RadzenDatePicker @bind-Value="contractModel.EndDate"
+                                      DateFormat="yyyy/MM/dd"
+                                      class="w-100" />
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label fw-bold">دفعة أولى</label>
+                    <RadzenNumeric @bind-Value="contractModel.InitialPaymentAmount"
+                                   Min="@(0m)"
+                                   Max="@(1000000m)"
+                                   Placeholder="0.00"
+                                   class="w-100" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">طريقة الدفعة الأولى</label>
+                    <RadzenDropDown @bind-Value="contractModel.InitialPaymentMethod"
+                                    Data="@paymentMethodOptions"
+                                    TextProperty="Label"
+                                    ValueProperty="Value"
+                                    Placeholder="اختر الطريقة"
+                                    Disabled="@(contractModel.InitialPaymentAmount <= 0)"
+                                    class="w-100" />
+                </div>
+
+                <div class="col-md-8">
+                    <label class="form-label fw-bold">ملاحظات العقد</label>
+                    <RadzenTextArea @bind-Value="contractModel.Notes"
+                                    Placeholder="أي تفاصيل إضافية تخص الاتفاق أو حالة التسليم..."
+                                    class="w-100"
+                                    Style="min-height: 88px;" />
+                </div>
+            </div>
+
+            <div class="equipment-picker mt-4">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-9">
+                        <label class="form-label fw-bold">إضافة معدة إلى العقد</label>
+                        <RadzenDropDown @bind-Value="selectedEquipmentId"
+                                        Data="@availableEquipmentOptions"
+                                        TextProperty="Label"
+                                        ValueProperty="Id"
+                                        Placeholder="اختر معدة متاحة"
+                                        AllowClear="true"
+                                        class="w-100" />
+                    </div>
+                    <div class="col-md-3 d-grid">
+                        <RadzenButton Text="إضافة إلى العقد"
+                                      Icon="add_circle"
+                                      ButtonStyle="ButtonStyle.Primary"
+                                      Click="AddSelectedEquipment" />
+                    </div>
+                </div>
+
+                @if (selectedItems.Count == 0)
+                {
+                    <div class="empty-lines mt-3">
+                        لم تتم إضافة أي معدة بعد. اختر معدة واحدة أو أكثر ليتم حساب قيمة العقد.
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive mt-3">
+                        <table class="table align-middle selected-lines-table">
+                            <thead>
+                                <tr>
+                                    <th>المعدة</th>
+                                    <th>الفئة</th>
+                                    <th>الكمية</th>
+                                    <th>سعر اليوم</th>
+                                    <th>الإجمالي</th>
+                                    <th class="text-center">إجراء</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in selectedItems)
+                                {
+                                    <tr>
+                                        <td>
+                                            <strong>@item.EquipmentName</strong>
+                                        </td>
+                                        <td>@item.CategoryName</td>
+                                        <td style="width: 120px;">
+                                            <RadzenNumeric @bind-Value="item.Quantity"
+                                                           Min="1"
+                                                           Max="99"
+                                                           class="w-100" />
+                                        </td>
+                                        <td style="width: 160px;">
+                                            <RadzenNumeric @bind-Value="item.RateAtTime"
+                                                           Min="@(0m)"
+                                                           Max="@(100000m)"
+                                                           class="w-100" />
+                                        </td>
+                                        <td class="fw-bold text-success">@GetLineTotal(item).ToString("N2") د.ل</td>
+                                        <td class="text-center" style="width: 90px;">
+                                            <RadzenButton Icon="delete"
+                                                          ButtonStyle="ButtonStyle.Danger"
+                                                          Size="ButtonSize.Small"
+                                                          Click="() => RemoveSelectedEquipment(item.EquipmentId)" />
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+
+            <div class="d-flex justify-content-end gap-2 mt-4">
+                <RadzenButton Text="تفريغ النموذج"
+                              ButtonStyle="ButtonStyle.Secondary"
+                              Click="ResetDraft" />
+                <RadzenButton Text="حفظ العقد"
+                              ButtonType="ButtonType.Submit"
+                              Icon="save"
+                              Disabled="@(isSaving || customers.Count == 0 || availableEquipmentOptions.Count == 0)"
+                              ButtonStyle="ButtonStyle.Success" />
+            </div>
+        </EditForm>
+    </RadzenCard>
+
+    <RadzenCard Variant="Variant.Outlined" class="shadow-sm">
+        <h5 class="mb-3 text-secondary fw-bold">قائمة العقود الحالية</h5>
+
+        <RadzenDataGrid AllowFiltering="true"
+                        FilterMode="FilterMode.Simple"
+                        AllowPaging="true"
+                        PageSize="8"
+                        AllowSorting="true"
+                        Data="@contracts"
+                        TItem="ContractListItem"
+                        ColumnWidth="180px"
+                        EmptyText="لا توجد عقود مسجلة حالياً.">
+            <Columns>
+                <RadzenDataGridColumn TItem="ContractListItem" Property="ContractNumber" Title="رقم العقد" Frozen="true" />
+                <RadzenDataGridColumn TItem="ContractListItem" Property="CustomerName" Title="العميل" />
+                <RadzenDataGridColumn TItem="ContractListItem" Title="الفترة" Filterable="false" Sortable="false">
+                    <Template Context="data">
+                        @data.StartDate.ToString("yyyy/MM/dd")
+                        <span class="text-muted mx-1">-</span>
+                        @data.EndDate.ToString("yyyy/MM/dd")
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ContractListItem" Title="الحالة" Filterable="false">
+                    <Template Context="data">
+                        <RadzenBadge Variant="Variant.Flat"
+                                     Severity="@GetStatusSeverity(data.Status)"
+                                     Text="@GetStatusLabel(data.Status)" />
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ContractListItem" Title="المعدات" Filterable="false" Sortable="false">
+                    <Template Context="data">
+                        <div class="equipment-list-cell">
+                            <strong>@data.EquipmentCount معدة</strong>
+                            <span>@data.EquipmentNames</span>
+                        </div>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ContractListItem" Title="الإجمالي" Filterable="false">
+                    <Template Context="data">@data.TotalAmount.ToString("N2") د.ل</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ContractListItem" Title="المدفوع" Filterable="false">
+                    <Template Context="data">@data.PaidAmount.ToString("N2") د.ل</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ContractListItem" Title="المتبقي" Filterable="false">
+                    <Template Context="data">
+                        <span class="@(data.RemainingAmount > 0 ? "text-danger fw-bold" : "text-success fw-bold")">
+                            @data.RemainingAmount.ToString("N2") د.ل
+                        </span>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ContractListItem" Title="إجراءات" Filterable="false" Sortable="false" Width="190px">
+                    <Template Context="data">
+                        <div class="d-flex gap-1">
+                            <RadzenButton Icon="receipt_long"
+                                          ButtonStyle="ButtonStyle.Info"
+                                          Size="ButtonSize.Small"
+                                          Click="() => OpenInvoice(data.Id)"
+                                          Tooltip="فتح الفاتورة" />
+                            @if (data.CanReturn)
+                            {
+                                <RadzenButton Icon="task_alt"
+                                              ButtonStyle="ButtonStyle.Success"
+                                              Size="ButtonSize.Small"
+                                              Click="() => CompleteContractAsync(data.Id)"
+                                              Tooltip="استلام وإغلاق العقد" />
+                            }
+
+                            <RadzenButton Icon="delete"
+                                          ButtonStyle="ButtonStyle.Danger"
+                                          Size="ButtonSize.Small"
+                                          Click="() => DeleteContractAsync(data.Id)"
+                                          Tooltip="حذف العقد" />
+                        </div>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    </RadzenCard>
+</div>
+
+@code {
+    private readonly ContractInputModel contractModel = new();
+    private readonly List<ContractDraftItem> selectedItems = new();
+
+    private List<Customer> customers = new();
+    private List<Equipment> allEquipments = new();
+    private List<EquipmentOption> availableEquipmentOptions = new();
+    private List<OptionItem<int?>> customerOptions = new();
+    private List<ContractListItem> contracts = new();
+
+    private int? selectedEquipmentId;
+    private bool isSaving;
+    private string formErrorMessage = string.Empty;
+
+    private int rentalDays => GetRentalDays();
+    private decimal draftTotalAmount => selectedItems.Sum(GetLineTotal);
+    private decimal draftRemainingAmount => Math.Max(0m, draftTotalAmount - contractModel.InitialPaymentAmount);
+    private int activeContractsCount => contracts.Count(c => c.Status is RentalStatus.Active or RentalStatus.Extended);
+    private int overdueContractsCount => contracts.Count(c => c.Status == RentalStatus.Overdue);
+    private decimal collectedAmount => contracts.Sum(c => c.PaidAmount);
+    private decimal outstandingBalance => contracts.Sum(c => c.RemainingAmount);
+
+    private readonly List<OptionItem<PaymentMethod>> paymentMethodOptions = new()
+    {
+        new("نقداً", PaymentMethod.Cash),
+        new("بطاقة ائتمان", PaymentMethod.CreditCard),
+        new("تحويل بنكي", PaymentMethod.BankTransfer),
+        new("محفظة إلكترونية", PaymentMethod.DigitalWallet)
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        ResetDraft();
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        customers = await LocalDb.Customers
+            .AsNoTracking()
+            .OrderBy(c => c.FullName)
+            .ToListAsync();
+
+        allEquipments = await LocalDb.Equipments
+            .AsNoTracking()
+            .Include(e => e.Customer)
+            .Include(e => e.EquipmentCategory)
+            .OrderBy(e => e.Name)
+            .ToListAsync();
+
+        customerOptions = customers
+            .Select(c => new OptionItem<int?>(GetCustomerLabel(c), c.Id))
+            .ToList();
+
+        availableEquipmentOptions = allEquipments
+            .Where(e => !e.IsRented)
+            .Select(e => new EquipmentOption(
+                e.Id,
+                GetEquipmentLabel(e),
+                GetEffectiveRate(e),
+                e.EquipmentCategory?.Name ?? "بدون فئة"))
+            .ToList();
+
+        await LoadContractsAsync();
+    }
+
+    private async Task LoadContractsAsync()
+    {
+        var contractEntities = await LocalDb.RentalContracts
+            .AsNoTracking()
+            .OrderByDescending(c => c.CreatedAt)
+            .ToListAsync();
+
+        var detailEntities = await LocalDb.RentalDetails
+            .AsNoTracking()
+            .OrderBy(d => d.CreatedAt)
+            .ToListAsync();
+
+        var paymentEntities = await LocalDb.Payments
+            .AsNoTracking()
+            .Where(p => p.RentalContractId != null && p.PaymentStatus == PaymentStatus.Completed)
+            .ToListAsync();
+
+        var detailsByContract = detailEntities
+            .GroupBy(d => d.RentalContractId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var paidLookup = paymentEntities
+            .GroupBy(p => p.RentalContractId!.Value)
+            .ToDictionary(g => g.Key, g => g.Sum(p => p.Amount));
+
+        contracts = contractEntities
+            .Select(contract =>
+            {
+                detailsByContract.TryGetValue(contract.Id, out var details);
+                var paidAmount = paidLookup.TryGetValue(contract.Id, out var totalPaid) ? totalPaid : 0m;
+                var resolvedStatus = ResolveStatus(contract);
+                var equipmentNames = details == null || details.Count == 0
+                    ? "—"
+                    : string.Join("، ", details.Select(d => d.EquipmentName).Where(n => !string.IsNullOrWhiteSpace(n)));
+
+                var totalAmount = contract.TotalAmount > 0
+                    ? contract.TotalAmount
+                    : details?.Sum(d => d.SubTotal) ?? 0m;
+
+                return new ContractListItem
+                {
+                    Id = contract.Id,
+                    ContractNumber = string.IsNullOrWhiteSpace(contract.ContractNumber) ? $"CTR-{contract.Id:00000}" : contract.ContractNumber,
+                    CustomerName = contract.Name,
+                    StartDate = contract.StartDate == default ? contract.CreatedAt : contract.StartDate,
+                    EndDate = contract.EndDate == default ? contract.CreatedAt : contract.EndDate,
+                    Status = resolvedStatus,
+                    EquipmentCount = details?.Count ?? 0,
+                    EquipmentNames = equipmentNames,
+                    TotalAmount = totalAmount,
+                    PaidAmount = paidAmount,
+                    RemainingAmount = Math.Max(0m, totalAmount - paidAmount),
+                    CanReturn = resolvedStatus is RentalStatus.Active or RentalStatus.Overdue or RentalStatus.Extended
+                };
+            })
+            .ToList();
+    }
+
+    private async Task AddSelectedEquipment()
+    {
+        formErrorMessage = string.Empty;
+
+        if (selectedEquipmentId is null)
+        {
+            formErrorMessage = "اختر معدة أولاً قبل إضافتها إلى العقد.";
+            return;
+        }
+
+        if (selectedItems.Any(i => i.EquipmentId == selectedEquipmentId.Value))
+        {
+            formErrorMessage = "هذه المعدة تمت إضافتها بالفعل إلى العقد.";
+            return;
+        }
+
+        var selectedEquipment = allEquipments.FirstOrDefault(e => e.Id == selectedEquipmentId.Value && !e.IsRented);
+        if (selectedEquipment is null)
+        {
+            formErrorMessage = "هذه المعدة لم تعد متاحة حالياً. حدّث الصفحة ثم حاول مرة أخرى.";
+            await LoadDataAsync();
+            return;
+        }
+
+        selectedItems.Add(new ContractDraftItem
+        {
+            EquipmentId = selectedEquipment.Id,
+            EquipmentName = selectedEquipment.Name,
+            CategoryName = selectedEquipment.EquipmentCategory?.Name ?? "بدون فئة",
+            Quantity = 1,
+            RateAtTime = GetEffectiveRate(selectedEquipment)
+        });
+
+        selectedEquipmentId = null;
+    }
+
+    private void RemoveSelectedEquipment(int equipmentId)
+    {
+        var item = selectedItems.FirstOrDefault(i => i.EquipmentId == equipmentId);
+        if (item != null)
+        {
+            selectedItems.Remove(item);
+        }
+    }
+
+    private async Task CreateContractAsync()
+    {
+        formErrorMessage = string.Empty;
+
+        if (contractModel.CustomerId is null)
+        {
+            formErrorMessage = "اختر العميل أولاً.";
+            return;
+        }
+
+        if (contractModel.EndDate.Date < contractModel.StartDate.Date)
+        {
+            formErrorMessage = "تاريخ النهاية يجب أن يكون بعد أو مساويًا لتاريخ البداية.";
+            return;
+        }
+
+        if (selectedItems.Count == 0)
+        {
+            formErrorMessage = "أضف معدة واحدة على الأقل قبل حفظ العقد.";
+            return;
+        }
+
+        if (selectedItems.Any(i => i.Quantity <= 0 || i.RateAtTime <= 0))
+        {
+            formErrorMessage = "تأكد أن الكمية والسعر اليومي لكل بند أكبر من صفر.";
+            return;
+        }
+
+        if (contractModel.InitialPaymentAmount > draftTotalAmount)
+        {
+            formErrorMessage = "الدفعة الأولى لا يمكن أن تكون أكبر من إجمالي العقد.";
+            return;
+        }
+
+        var customer = customers.FirstOrDefault(c => c.Id == contractModel.CustomerId.Value);
+        if (customer is null)
+        {
+            formErrorMessage = "تعذر العثور على بيانات العميل المختار.";
+            return;
+        }
+
+        isSaving = true;
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            var contractNumber = await GenerateContractNumberAsync();
+            var dailyTotal = selectedItems.Sum(i => i.RateAtTime * i.Quantity);
+
+            await using var transaction = await LocalDb.Database.BeginTransactionAsync();
+
+            var equipmentIds = selectedItems.Select(i => i.EquipmentId).ToList();
+            var equipmentsToUpdate = await LocalDb.Equipments
+                .Where(e => equipmentIds.Contains(e.Id))
+                .ToListAsync();
+
+            if (equipmentsToUpdate.Count != equipmentIds.Distinct().Count())
+            {
+                formErrorMessage = "تعذر العثور على واحدة أو أكثر من المعدات المختارة. حدّث الصفحة ثم أعد المحاولة.";
+                await transaction.RollbackAsync();
+                await LoadDataAsync();
+                return;
+            }
+
+            if (equipmentsToUpdate.Any(e => e.IsRented))
+            {
+                formErrorMessage = "إحدى المعدات المختارة أصبحت مؤجرة بالفعل. حدّث الصفحة ثم أعد المحاولة.";
+                await transaction.RollbackAsync();
+                await LoadDataAsync();
+                return;
+            }
+
+            var contract = new RentalContract
+            {
+                ContractNumber = contractNumber,
+                CustomerId = customer.Id,
+                Name = customer.FullName,
+                Category = "عقد تأجير معدات",
+                Description = contractModel.Notes,
+                DailyRate = dailyTotal,
+                StartDate = contractModel.StartDate.Date,
+                EndDate = contractModel.EndDate.Date,
+                TotalAmount = draftTotalAmount,
+                DepositAmount = contractModel.InitialPaymentAmount,
+                Status = RentalStatus.Active,
+                IsAvailable = false,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+
+            LocalDb.RentalContracts.Add(contract);
+            await LocalDb.SaveChangesAsync();
+
+            foreach (var item in selectedItems)
+            {
+                LocalDb.RentalDetails.Add(new RentalDetail
+                {
+                    EquipmentId = item.EquipmentId,
+                    EquipmentName = item.EquipmentName,
+                    Quantity = item.Quantity,
+                    RateAtTime = item.RateAtTime,
+                    SubTotal = GetLineTotal(item),
+                    DamageFee = 0m,
+                    IsReturned = false,
+                    RentalContractId = contract.Id,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
+            }
+
+            foreach (var equipment in equipmentsToUpdate)
+            {
+                equipment.CustomerId = customer.Id;
+                equipment.StartDate = contract.StartDate;
+                equipment.EndDate = contract.EndDate;
+                equipment.IsRented = true;
+                equipment.CurrentRentalContractId = contract.Id;
+                equipment.UpdatedAt = now;
+
+                var line = selectedItems.First(i => i.EquipmentId == equipment.Id);
+                if (equipment.DailyRentalRate <= 0)
+                {
+                    equipment.DailyRentalRate = line.RateAtTime;
+                }
+            }
+
+            if (contractModel.InitialPaymentAmount > 0)
+            {
+                LocalDb.Payments.Add(new Payment
+                {
+                    Amount = contractModel.InitialPaymentAmount,
+                    PaymentDate = now,
+                    PaymentMethod = contractModel.InitialPaymentMethod,
+                    PaymentStatus = PaymentStatus.Completed,
+                    RefrenceNumber = contractNumber,
+                    Notes = $"دفعة أولى للعقد {contractNumber}",
+                    RentalContractId = contract.Id,
+                    ContractNumber = contractNumber,
+                    CustomerName = customer.FullName,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
+            }
+
+            await LocalDb.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            ShowNotification(NotificationSeverity.Success, "تم حفظ العقد", $"تم إنشاء العقد {contractNumber} بنجاح.");
+
+            ResetDraft();
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            formErrorMessage = $"تعذر حفظ العقد: {ex.Message}";
+            ShowNotification(NotificationSeverity.Error, "فشل الحفظ", ex.Message);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task CompleteContractAsync(int contractId)
+    {
+        var contract = await LocalDb.RentalContracts.FirstOrDefaultAsync(c => c.Id == contractId);
+        if (contract is null)
+        {
+            return;
+        }
+
+        var resolvedStatus = ResolveStatus(contract);
+        if (resolvedStatus is RentalStatus.Completed or RentalStatus.Canceled)
+        {
+            ShowNotification(NotificationSeverity.Info, "العقد مغلق", "هذا العقد مغلق بالفعل.");
+            return;
+        }
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            await using var transaction = await LocalDb.Database.BeginTransactionAsync();
+
+            var details = await LocalDb.RentalDetails
+                .Where(d => d.RentalContractId == contractId)
+                .ToListAsync();
+
+            var equipmentIds = details
+                .Where(d => d.EquipmentId.HasValue)
+                .Select(d => d.EquipmentId!.Value)
+                .Distinct()
+                .ToList();
+
+            var equipments = await LocalDb.Equipments
+                .Where(e => equipmentIds.Contains(e.Id))
+                .ToListAsync();
+
+            contract.Status = RentalStatus.Completed;
+            contract.ActualReturnDate = now;
+            contract.IsAvailable = true;
+            contract.UpdatedAt = now;
+
+            foreach (var detail in details)
+            {
+                detail.IsReturned = true;
+                detail.ReturnDate = now;
+                detail.ReturnCondition ??= EquipmentCondition.Good;
+                detail.UpdatedAt = now;
+            }
+
+            foreach (var equipment in equipments)
+            {
+                if (equipment.CurrentRentalContractId == contractId || equipment.CurrentRentalContractId is null)
+                {
+                    equipment.CustomerId = null;
+                    equipment.StartDate = default;
+                    equipment.EndDate = default;
+                    equipment.ActualReturnDate = now;
+                    equipment.IsRented = false;
+                    equipment.CurrentRentalContractId = null;
+                    equipment.UpdatedAt = now;
+                }
+            }
+
+            await LocalDb.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            ShowNotification(NotificationSeverity.Success, "تم استلام المعدات", $"تم إغلاق العقد {contract.ContractNumber}.");
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowNotification(NotificationSeverity.Error, "فشل الإغلاق", ex.Message);
+        }
+    }
+
+    private async Task DeleteContractAsync(int contractId)
+    {
+        var contract = await LocalDb.RentalContracts.FirstOrDefaultAsync(c => c.Id == contractId);
+        if (contract is null)
+        {
+            return;
+        }
+
+        var hasPayments = await LocalDb.Payments.AnyAsync(p => p.RentalContractId == contractId);
+        if (hasPayments)
+        {
+            ShowNotification(NotificationSeverity.Warning, "تعذر الحذف", "لا يمكن حذف عقد لديه مدفوعات مرتبطة. أغلقه بدلاً من ذلك.");
+            return;
+        }
+
+        try
+        {
+            await using var transaction = await LocalDb.Database.BeginTransactionAsync();
+
+            var details = await LocalDb.RentalDetails
+                .Where(d => d.RentalContractId == contractId)
+                .ToListAsync();
+
+            var equipmentIds = details
+                .Where(d => d.EquipmentId.HasValue)
+                .Select(d => d.EquipmentId!.Value)
+                .Distinct()
+                .ToList();
+
+            var equipments = await LocalDb.Equipments
+                .Where(e => equipmentIds.Contains(e.Id))
+                .ToListAsync();
+
+            foreach (var equipment in equipments)
+            {
+                if (equipment.CurrentRentalContractId == contractId || equipment.CurrentRentalContractId is null)
+                {
+                    equipment.CustomerId = null;
+                    equipment.StartDate = default;
+                    equipment.EndDate = default;
+                    equipment.IsRented = false;
+                    equipment.CurrentRentalContractId = null;
+                    equipment.UpdatedAt = DateTime.UtcNow;
+                }
+            }
+
+            LocalDb.RentalDetails.RemoveRange(details);
+            LocalDb.RentalContracts.Remove(contract);
+            await LocalDb.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            ShowNotification(NotificationSeverity.Success, "تم الحذف", $"تم حذف العقد {contract.ContractNumber}.");
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowNotification(NotificationSeverity.Error, "فشل الحذف", ex.Message);
+        }
+    }
+
+    private void OpenInvoice(int contractId)
+    {
+        Navigation.NavigateTo($"/contracts/{contractId}/invoice");
+    }
+
+    private void ResetDraft()
+    {
+        contractModel.CustomerId = null;
+        contractModel.StartDate = DateTime.Today;
+        contractModel.EndDate = DateTime.Today.AddDays(1);
+        contractModel.InitialPaymentAmount = 0m;
+        contractModel.InitialPaymentMethod = PaymentMethod.Cash;
+        contractModel.Notes = string.Empty;
+        selectedEquipmentId = null;
+        selectedItems.Clear();
+        formErrorMessage = string.Empty;
+    }
+
+    private int GetRentalDays()
+    {
+        var days = (contractModel.EndDate.Date - contractModel.StartDate.Date).Days + 1;
+        return Math.Max(1, days);
+    }
+
+    private decimal GetLineTotal(ContractDraftItem item) =>
+        Math.Max(0, item.Quantity) * Math.Max(0m, item.RateAtTime) * rentalDays;
+
+    private async Task<string> GenerateContractNumberAsync()
+    {
+        var nextId = (await LocalDb.RentalContracts.MaxAsync(c => (int?)c.Id) ?? 0) + 1;
+        return $"CTR-{DateTime.Now:yyyyMMdd}-{nextId:0000}";
+    }
+
+    private static decimal GetEffectiveRate(Equipment equipment) =>
+        equipment.DailyRentalRate > 0 ? equipment.DailyRentalRate : equipment.TotalCost;
+
+    private static string GetEquipmentLabel(Equipment equipment)
+    {
+        var rate = GetEffectiveRate(equipment).ToString("N2");
+        var category = equipment.EquipmentCategory?.Name ?? "بدون فئة";
+        return $"{equipment.Name} - {category} - {rate} د.ل/يوم";
+    }
+
+    private static string GetCustomerLabel(Customer customer) =>
+        $"{customer.FullName} - {customer.PhoneNumber}";
+
+    private static RentalStatus ResolveStatus(RentalContract contract)
+    {
+        if (contract.Status is RentalStatus.Completed or RentalStatus.Canceled or RentalStatus.Extended)
+        {
+            return contract.Status;
+        }
+
+        return contract.EndDate.Date < DateTime.Today
+            ? RentalStatus.Overdue
+            : contract.Status;
+    }
+
+    private static NotificationSeverity GetStatusSeverity(RentalStatus status) => status switch
+    {
+        RentalStatus.Active => NotificationSeverity.Success,
+        RentalStatus.Completed => NotificationSeverity.Info,
+        RentalStatus.Canceled => NotificationSeverity.Error,
+        RentalStatus.Overdue => NotificationSeverity.Warning,
+        RentalStatus.Extended => NotificationSeverity.Info,
+        _ => NotificationSeverity.Info
+    };
+
+    private static string GetStatusLabel(RentalStatus status) => status switch
+    {
+        RentalStatus.Active => "نشط",
+        RentalStatus.Completed => "مغلق",
+        RentalStatus.Canceled => "ملغي",
+        RentalStatus.Overdue => "متأخر",
+        RentalStatus.Extended => "ممدد",
+        _ => status.ToString()
+    };
+
+    private void ShowNotification(NotificationSeverity severity, string summary, string detail)
+    {
+        NotificationService.Notify(new NotificationMessage
+        {
+            Severity = severity,
+            Summary = summary,
+            Detail = detail,
+            Duration = 4000
+        });
+    }
+
+    public void Dispose()
+    {
+    }
+
+    private sealed class ContractInputModel
+    {
+        [Range(1, int.MaxValue, ErrorMessage = "اختر العميل.")]
+        public int? CustomerId { get; set; }
+
+        public DateTime StartDate { get; set; } = DateTime.Today;
+
+        public DateTime EndDate { get; set; } = DateTime.Today.AddDays(1);
+
+        [Range(0, 1000000)]
+        public decimal InitialPaymentAmount { get; set; }
+
+        public PaymentMethod InitialPaymentMethod { get; set; } = PaymentMethod.Cash;
+
+        [MaxLength(500)]
+        public string? Notes { get; set; }
+    }
+
+    private sealed class ContractDraftItem
+    {
+        public int EquipmentId { get; set; }
+
+        public string EquipmentName { get; set; } = string.Empty;
+
+        public string CategoryName { get; set; } = string.Empty;
+
+        public int Quantity { get; set; } = 1;
+
+        public decimal RateAtTime { get; set; }
+    }
+
+    private sealed class ContractListItem
+    {
+        public int Id { get; set; }
+
+        public string ContractNumber { get; set; } = string.Empty;
+
+        public string CustomerName { get; set; } = string.Empty;
+
+        public DateTime StartDate { get; set; }
+
+        public DateTime EndDate { get; set; }
+
+        public RentalStatus Status { get; set; }
+
+        public int EquipmentCount { get; set; }
+
+        public string EquipmentNames { get; set; } = string.Empty;
+
+        public decimal TotalAmount { get; set; }
+
+        public decimal PaidAmount { get; set; }
+
+        public decimal RemainingAmount { get; set; }
+
+        public bool CanReturn { get; set; }
+    }
+
+    private sealed record EquipmentOption(int Id, string Label, decimal Rate, string CategoryName);
+
+    private sealed record OptionItem<T>(string Label, T Value);
+}

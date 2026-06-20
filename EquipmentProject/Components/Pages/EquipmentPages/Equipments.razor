@@ -1,0 +1,443 @@
+@page "/equipment"
+@using EquipmentProject.Data
+@using Microsoft.EntityFrameworkCore
+@using SharedEquipment.Models
+@inject LocalDbContext LocalDb
+@inject NotificationService NotificationService
+
+<div class="container mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
+        <h3 class="m-0 text-secondary">إدارة المعدات</h3>
+        <RadzenBadge BadgeKind="BadgeKind.Pill"
+                     Variant="Variant.Flat"
+                     Severity="NotificationSeverity.Info"
+                     Text="@($"{equipments.Count} معدة")"
+                     Style="font-size: 14px; padding: 8px 12px;" />
+    </div>
+
+    <RadzenCard Variant="Variant.Filled" class="mb-4 shadow-sm">
+        <h5 class="text-primary mb-3 fw-bold">
+            @(isEditMode ? "تعديل بيانات المعدة" : "إضافة معدة جديدة")
+        </h5>
+
+        @if (!string.IsNullOrWhiteSpace(formErrorMessage))
+        {
+            <div class="alert alert-danger mb-3">@formErrorMessage</div>
+        }
+
+        <EditForm Model="@equipmentModel" OnValidSubmit="HandleSubmitAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="text-danger mb-3" />
+
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">اسم المعدة</label>
+                    <RadzenTextBox @bind-Value="equipmentModel.Name"
+                                   Placeholder="مثال: حفارة أو مولد"
+                                   class="w-100" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">الرقم التسلسلي</label>
+                    <RadzenTextBox @bind-Value="equipmentModel.SerialNumber"
+                                   Placeholder="اختياري"
+                                   class="w-100 text-start" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">الفئة</label>
+                    <RadzenDropDown @bind-Value="equipmentModel.EquipmentCategoryId"
+                                    Data="@categories"
+                                    TextProperty="Name"
+                                    ValueProperty="Id"
+                                    Placeholder="اختر الفئة"
+                                    AllowClear="true"
+                                    class="w-100" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">الحالة</label>
+                    <RadzenDropDown @bind-Value="equipmentModel.Status"
+                                    Data="@conditionOptions"
+                                    TextProperty="Label"
+                                    ValueProperty="Value"
+                                    Placeholder="اختر الحالة"
+                                    class="w-100" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">تاريخ البداية</label>
+                    <RadzenDatePicker @bind-Value="equipmentModel.StartDate"
+                                      DateFormat="yyyy/MM/dd"
+                                      class="w-100" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">تاريخ النهاية</label>
+                    <RadzenDatePicker @bind-Value="equipmentModel.EndDate"
+                                      DateFormat="yyyy/MM/dd"
+                                      class="w-100" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">سعر التأجير اليومي</label>
+                    <RadzenNumeric @bind-Value="equipmentModel.DailyRentalRate"
+                                   Placeholder="0.00"
+                                   Format="N2"
+                                   class="w-100" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">التكلفة الأصلية</label>
+                    <RadzenNumeric @bind-Value="equipmentModel.TotalCost"
+                                   Placeholder="0.00"
+                                   Format="N2"
+                                   class="w-100" />
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">ملاحظات</label>
+                    <RadzenTextBox @bind-Value="equipmentModel.Notes"
+                                   Placeholder="أي ملاحظات إضافية"
+                                   class="w-100" />
+                </div>
+
+                <div class="col-md-3 d-flex align-items-end gap-2">
+                    @if (isEditMode)
+                    {
+                        <RadzenButton ButtonType="ButtonType.Submit"
+                                      Text="تحديث"
+                                      ButtonStyle="ButtonStyle.Warning"
+                                      class="w-100 fw-bold" />
+                        <RadzenButton ButtonType="ButtonType.Button"
+                                      Text="إلغاء"
+                                      ButtonStyle="ButtonStyle.Secondary"
+                                      Click="CancelEdit"
+                                      class="w-100 fw-bold" />
+                    }
+                    else
+                    {
+                        <RadzenButton ButtonType="ButtonType.Submit"
+                                      Text="حفظ المعدة"
+                                      ButtonStyle="ButtonStyle.Success"
+                                      class="w-100 fw-bold" />
+                    }
+                </div>
+            </div>
+        </EditForm>
+    </RadzenCard>
+
+    <RadzenCard Variant="Variant.Outlined" class="shadow-sm">
+        <h5 class="mb-3 text-secondary fw-bold">قائمة المعدات</h5>
+
+        <RadzenDataGrid AllowFiltering="true"
+                        FilterMode="FilterMode.Simple"
+                        AllowPaging="true"
+                        PageSize="7"
+                        AllowSorting="true"
+                        Data="@equipments"
+                        TItem="Equipment"
+                        ColumnWidth="160px"
+                        EmptyText="لا توجد معدات مسجلة حالياً.">
+            <Columns>
+                <RadzenDataGridColumn TItem="Equipment" Property="Name" Title="اسم المعدة" Frozen="true" />
+                <RadzenDataGridColumn TItem="Equipment" Title="الفئة" Filterable="false">
+                    <Template Context="data">
+                        @(data.EquipmentCategory?.Name ?? "—")
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="Equipment" Title="التأجير" Filterable="false">
+                    <Template Context="data">
+                        <RadzenBadge Variant="Variant.Flat"
+                                     Severity="@(data.IsRented ? NotificationSeverity.Warning : NotificationSeverity.Success)"
+                                     Text="@(data.IsRented ? "مؤجرة" : "متاحة")" />
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="Equipment" Title="العميل الحالي" Filterable="false">
+                    <Template Context="data">
+                        @(data.Customer?.FullName ?? "—")
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="Equipment" Title="الحالة" Filterable="false">
+                    <Template Context="data">
+                        <RadzenBadge Variant="Variant.Flat"
+                                     Severity="@GetConditionSeverity(data.Status)"
+                                     Text="@GetConditionLabel(data.Status)" />
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="Equipment" Title="السعر اليومي" Filterable="false">
+                    <Template Context="data">
+                        @GetEffectiveRate(data).ToString("N2") د.ل
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="Equipment" Title="التكلفة الأصلية" Filterable="false">
+                    <Template Context="data">
+                        @data.TotalCost.ToString("N2") د.ل
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="Equipment" Property="Notes" Title="ملاحظات" Filterable="false" />
+                <RadzenDataGridColumn TItem="Equipment" Title="إجراءات" Filterable="false" Sortable="false" Width="160px">
+                    <Template Context="eq">
+                        <div class="d-flex gap-1">
+                            <RadzenButton Icon="edit"
+                                          ButtonStyle="ButtonStyle.Warning"
+                                          Size="ButtonSize.Small"
+                                          Click="() => PrepareForEdit(eq)"
+                                          Tooltip="تعديل" />
+                            <RadzenButton Icon="delete"
+                                          ButtonStyle="ButtonStyle.Danger"
+                                          Size="ButtonSize.Small"
+                                          Click="() => DeleteEquipmentAsync(eq.Id)"
+                                          Tooltip="حذف" />
+                        </div>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    </RadzenCard>
+</div>
+
+@code {
+    private List<Equipment> equipments = new();
+    private List<Category> categories = new();
+    private Equipment equipmentModel = CreateEmptyEquipment();
+    private bool isEditMode;
+    private string formErrorMessage = string.Empty;
+
+    private record ConditionOption(string Label, EquipmentCondition Value);
+
+    private readonly List<ConditionOption> conditionOptions = new()
+    {
+        new("ممتازة", EquipmentCondition.Excellent),
+        new("جيدة", EquipmentCondition.Good),
+        new("مقبولة", EquipmentCondition.Fair),
+        new("تحتاج صيانة", EquipmentCondition.NeedsMaintenance),
+        new("تلفة", EquipmentCondition.Damaged)
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        equipments = await LocalDb.Equipments
+            .AsNoTracking()
+            .Include(e => e.EquipmentCategory)
+            .Include(e => e.Customer)
+            .OrderByDescending(e => e.CreatedAt)
+            .ToListAsync();
+
+        categories = await LocalDb.Categories
+            .AsNoTracking()
+            .OrderBy(c => c.Name)
+            .ToListAsync();
+    }
+
+    private async Task HandleSubmitAsync()
+    {
+        formErrorMessage = string.Empty;
+        NormalizeEquipment();
+
+        if (!ValidateEquipment())
+        {
+            return;
+        }
+
+        equipmentModel.UpdatedAt = DateTime.UtcNow;
+
+        if (equipmentModel.DailyRentalRate <= 0 && equipmentModel.TotalCost > 0)
+        {
+            equipmentModel.DailyRentalRate = equipmentModel.TotalCost;
+        }
+
+        if (isEditMode)
+        {
+            LocalDb.Equipments.Update(equipmentModel);
+            ShowNotification(NotificationSeverity.Success, "تم التحديث", "تم تحديث بيانات المعدة بنجاح.");
+        }
+        else
+        {
+            equipmentModel.CreatedAt = DateTime.UtcNow;
+            await LocalDb.Equipments.AddAsync(equipmentModel);
+            ShowNotification(NotificationSeverity.Success, "تم الحفظ", "تمت إضافة المعدة بنجاح.");
+        }
+
+        await LocalDb.SaveChangesAsync();
+        await CancelEdit();
+        await LoadDataAsync();
+    }
+
+    private void PrepareForEdit(Equipment equipment)
+    {
+        formErrorMessage = string.Empty;
+        equipmentModel = CloneEquipment(equipment);
+        isEditMode = true;
+    }
+
+    private Task CancelEdit()
+    {
+        formErrorMessage = string.Empty;
+        equipmentModel = CreateEmptyEquipment();
+        isEditMode = false;
+        return Task.CompletedTask;
+    }
+
+    private async Task DeleteEquipmentAsync(int id)
+    {
+        if (equipmentModel.Id == id)
+        {
+            await CancelEdit();
+        }
+
+        var equipmentSnapshot = await LocalDb.Equipments
+            .AsNoTracking()
+            .FirstOrDefaultAsync(e => e.Id == id);
+
+        if (equipmentSnapshot is null)
+        {
+            return;
+        }
+
+        if (equipmentSnapshot.IsRented || equipmentSnapshot.CurrentRentalContractId.HasValue || equipmentSnapshot.CustomerId.HasValue)
+        {
+            ShowNotification(NotificationSeverity.Warning, "لا يمكن الحذف", "هذه المعدة مرتبطة حالياً بعملية تأجير.");
+            return;
+        }
+
+        var hasRentalHistory = await LocalDb.RentalDetails
+            .AsNoTracking()
+            .AnyAsync(d => d.EquipmentId == id);
+
+        if (hasRentalHistory)
+        {
+            ShowNotification(NotificationSeverity.Warning, "لا يمكن الحذف", "هذه المعدة مرتبطة بسجل عقود سابق.");
+            return;
+        }
+
+        var hasMaintenanceHistory = await LocalDb.Maintenances
+            .AsNoTracking()
+            .AnyAsync(m => m.EquipmentId == id);
+
+        if (hasMaintenanceHistory)
+        {
+            ShowNotification(NotificationSeverity.Warning, "لا يمكن الحذف", "هذه المعدة مرتبطة بسجل صيانة.");
+            return;
+        }
+
+        var equipment = await LocalDb.Equipments.FindAsync(id);
+        if (equipment is null)
+        {
+            return;
+        }
+
+        LocalDb.Equipments.Remove(equipment);
+        await LocalDb.SaveChangesAsync();
+        await LoadDataAsync();
+
+        ShowNotification(NotificationSeverity.Success, "تم الحذف", "تم حذف المعدة بنجاح.");
+    }
+
+    private void NormalizeEquipment()
+    {
+        equipmentModel.Name = equipmentModel.Name.Trim();
+        equipmentModel.SerialNumber = equipmentModel.SerialNumber?.Trim();
+        equipmentModel.Notes = equipmentModel.Notes.Trim();
+
+        if (equipmentModel.StartDate == default)
+        {
+            equipmentModel.StartDate = DateTime.Today;
+        }
+
+        if (equipmentModel.EndDate == default)
+        {
+            equipmentModel.EndDate = equipmentModel.StartDate;
+        }
+    }
+
+    private bool ValidateEquipment()
+    {
+        if (string.IsNullOrWhiteSpace(equipmentModel.Name))
+        {
+            formErrorMessage = "يرجى إدخال اسم المعدة.";
+            return false;
+        }
+
+        if (equipmentModel.DailyRentalRate < 0 || equipmentModel.TotalCost < 0)
+        {
+            formErrorMessage = "لا يمكن إدخال قيم سالبة للأسعار.";
+            return false;
+        }
+
+        if (equipmentModel.EndDate.Date < equipmentModel.StartDate.Date)
+        {
+            formErrorMessage = "تاريخ النهاية يجب أن يكون بعد أو مساويًا لتاريخ البداية.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private NotificationSeverity GetConditionSeverity(EquipmentCondition condition) => condition switch
+    {
+        EquipmentCondition.Excellent => NotificationSeverity.Success,
+        EquipmentCondition.Good => NotificationSeverity.Info,
+        EquipmentCondition.Fair => NotificationSeverity.Warning,
+        EquipmentCondition.NeedsMaintenance => NotificationSeverity.Warning,
+        EquipmentCondition.Damaged => NotificationSeverity.Error,
+        _ => NotificationSeverity.Info
+    };
+
+    private string GetConditionLabel(EquipmentCondition condition) => condition switch
+    {
+        EquipmentCondition.Excellent => "ممتازة",
+        EquipmentCondition.Good => "جيدة",
+        EquipmentCondition.Fair => "مقبولة",
+        EquipmentCondition.NeedsMaintenance => "تحتاج صيانة",
+        EquipmentCondition.Damaged => "تلفة",
+        _ => condition.ToString()
+    };
+
+    private static decimal GetEffectiveRate(Equipment equipment) =>
+        equipment.DailyRentalRate > 0 ? equipment.DailyRentalRate : equipment.TotalCost;
+
+    private static Equipment CloneEquipment(Equipment equipment) => new()
+    {
+        Id = equipment.Id,
+        Name = equipment.Name,
+        SerialNumber = equipment.SerialNumber,
+        StartDate = equipment.StartDate,
+        EndDate = equipment.EndDate,
+        ActualReturnDate = equipment.ActualReturnDate,
+        DailyRentalRate = equipment.DailyRentalRate,
+        TotalCost = equipment.TotalCost,
+        Status = equipment.Status,
+        Notes = equipment.Notes,
+        IsRented = equipment.IsRented,
+        CurrentRentalContractId = equipment.CurrentRentalContractId,
+        CustomerId = equipment.CustomerId,
+        EquipmentCategoryId = equipment.EquipmentCategoryId,
+        CreatedAt = equipment.CreatedAt,
+        UpdatedAt = equipment.UpdatedAt,
+        CreatedBy = equipment.CreatedBy
+    };
+
+    private static Equipment CreateEmptyEquipment() => new()
+    {
+        StartDate = DateTime.Today,
+        EndDate = DateTime.Today,
+        Status = EquipmentCondition.Good
+    };
+
+    private void ShowNotification(NotificationSeverity severity, string summary, string detail)
+    {
+        NotificationService.Notify(new NotificationMessage
+        {
+            Severity = severity,
+            Summary = summary,
+            Detail = detail,
+            Duration = 4000
+        });
+    }
+}

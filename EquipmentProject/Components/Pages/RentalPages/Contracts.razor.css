@@ -1,0 +1,99 @@
+.contracts-page .summary-card {
+    display: grid;
+    gap: 0.4rem;
+    padding: 1rem 1.1rem;
+    border-radius: 20px;
+    background: #fff;
+    border: 1px solid rgba(18, 52, 102, 0.08);
+    box-shadow: 0 14px 30px rgba(12, 23, 54, 0.06);
+}
+
+.contracts-page .summary-card span {
+    color: #6b7891;
+    font-size: 0.92rem;
+}
+
+.contracts-page .summary-card strong {
+    color: #1d2942;
+    font-size: 1.45rem;
+}
+
+.contracts-page .summary-card.success strong {
+    color: #19734e;
+}
+
+.contracts-page .summary-card.warning strong {
+    color: #b27316;
+}
+
+.contracts-page .summary-card.danger strong {
+    color: #b14c32;
+}
+
+.contract-form-card {
+    overflow: hidden;
+}
+
+.draft-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.metric-pill {
+    min-width: 120px;
+    padding: 0.8rem 1rem;
+    border-radius: 18px;
+    background: #f7f9ff;
+    border: 1px solid rgba(18, 52, 102, 0.08);
+}
+
+.metric-pill span {
+    display: block;
+    color: #6b7891;
+    font-size: 0.84rem;
+    margin-bottom: 0.25rem;
+}
+
+.metric-pill strong {
+    color: #1d2942;
+}
+
+.equipment-picker {
+    padding-top: 1rem;
+    border-top: 1px solid rgba(18, 52, 102, 0.08);
+}
+
+.empty-lines {
+    padding: 1rem 1.1rem;
+    border-radius: 18px;
+    background: #f8fafe;
+    color: #6d7890;
+}
+
+.selected-lines-table thead th {
+    white-space: nowrap;
+    color: #5e6a83;
+    font-weight: 700;
+}
+
+.selected-lines-table tbody tr {
+    vertical-align: middle;
+}
+
+.equipment-list-cell {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.equipment-list-cell span {
+    color: #6c7892;
+    font-size: 0.88rem;
+    line-height: 1.6;
+}
+
+@media (max-width: 900px) {
+    .draft-metrics {
+        width: 100%;
+    }
+}

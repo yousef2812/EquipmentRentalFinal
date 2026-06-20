@@ -1,0 +1,108 @@
+@inject AuthSessionService AuthSession
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="home">EquipmentRental</a>
+        @if (AuthSession.CurrentUser is not null)
+        {
+            <div class="nav-user-chip">
+                <strong>@AuthSession.CurrentUser.DisplayName</strong>
+                <span>@GetRoleLabel(AuthSession.CurrentUser.Role)</span>
+            </div>
+        }
+    </div>
+</div>
+
+<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+    <nav class="nav flex-column">
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="home">
+                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> الصفحة الرئيسية
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="customers">
+                <span class="bi bi-people-fill" aria-hidden="true"></span> إدارة العملاء
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="payments">
+                <span class="bi bi-credit-card-fill" aria-hidden="true"></span> المدفوعات
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="contracts">
+                <span class="bi bi-file-earmark-text-nav-menu" aria-hidden="true"></span> العقود
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="equipment">
+                <span class="bi bi-tools-nav-menu" aria-hidden="true"></span> المعدات
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="maintenance">
+                <span class="bi bi-wrench-adjustable-nav-menu" aria-hidden="true"></span> الصيانة
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="reports">
+                <span class="bi bi-bar-chart-line-nav-menu" aria-hidden="true"></span> التقارير
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="categories">
+                <span class="bi bi-tags-nav-menu" aria-hidden="true"></span> الفئات
+            </NavLink>
+        </div>
+    </nav>
+
+    <div class="nav-footer px-3">
+        @if (AuthSession.CurrentUser is not null)
+        {
+            <div class="footer-user">
+                <strong>@AuthSession.CurrentUser.Username</strong>
+                <span>@AuthSession.CurrentUser.PhoneNumber</span>
+            </div>
+        }
+
+        <button class="logout-button" @onclick="HandleLogout">
+            <span class="bi bi-box-arrow-right-nav-menu" aria-hidden="true"></span> تسجيل الخروج
+        </button>
+    </div>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        AuthSession.StateChanged += HandleStateChanged;
+    }
+
+    public void Dispose()
+    {
+        AuthSession.StateChanged -= HandleStateChanged;
+    }
+
+    private Task HandleLogout()
+    {
+        AuthSession.SignOut();
+        Navigation.NavigateTo("/login", replace: true);
+        return Task.CompletedTask;
+    }
+
+    private void HandleStateChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private static string GetRoleLabel(UserRole role) => role switch
+    {
+        UserRole.Admin => "مدير النظام",
+        UserRole.Manager => "مدير",
+        _ => "موظف"
+    };
+}

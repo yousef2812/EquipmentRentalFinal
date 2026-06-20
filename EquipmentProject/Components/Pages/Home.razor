@@ -1,0 +1,331 @@
+@page "/home"
+@using EquipmentProject.Data
+@using Microsoft.EntityFrameworkCore
+@inject LocalDbContext LocalDb
+@inject HttpClient Http
+
+<PageTitle>لوحة التحكم</PageTitle>
+
+<div class="dashboard-shell" dir="rtl">
+    <section class="dashboard-hero">
+        <div>
+            <div class="hero-kicker">EquipmentRental Dashboard</div>
+            <h1>لوحة التحكم الرئيسية</h1>
+            <p>
+                ملخص سريع لحالة النظام، عدد العملاء، حالة المعدات، وحركة المدفوعات من قاعدة البيانات المحلية.
+            </p>
+        </div>
+
+        <div class="hero-actions">
+            <RadzenButton Text="تحديث البيانات"
+                          Icon="refresh"
+                          Click="@(_ => RefreshDashboardAsync())"
+                          ButtonStyle="ButtonStyle.Primary"
+                          Disabled="@isLoading" />
+            <a class="hero-link" href="customers">إدارة العملاء</a>
+        </div>
+    </section>
+
+    <section class="status-strip">
+        <div class="status-card">
+            <span class="status-label">حالة الخادم</span>
+            <strong class="status-value @(apiHealthy ? "healthy" : "offline")">@apiStatusText</strong>
+        </div>
+        <div class="status-card">
+            <span class="status-label">آخر مزامنة</span>
+            <strong class="status-value">@lastSyncText</strong>
+        </div>
+        <div class="status-card">
+            <span class="status-label">العملاء الجدد</span>
+            <strong class="status-value">@customersAddedThisWeek</strong>
+        </div>
+    </section>
+
+    <section class="stats-grid">
+        @foreach (var stat in stats)
+        {
+            <article class="metric-card">
+                <div class="metric-icon @stat.AccentClass">
+                    <span class="@($"bi {stat.Icon}")" aria-hidden="true"></span>
+                </div>
+                <div>
+                    <div class="metric-label">@stat.Label</div>
+                    <div class="metric-value">@stat.Value</div>
+                    <div class="metric-note">@stat.Note</div>
+                </div>
+            </article>
+        }
+    </section>
+
+    <section class="dashboard-columns">
+        <article class="panel-card">
+            <div class="panel-head">
+                <div>
+                    <h2>ملخص المدفوعات</h2>
+                    <p>حركة المدفوعات المحفوظة محليًا داخل النظام.</p>
+                </div>
+            </div>
+
+            <div class="payment-summary">
+                <div class="summary-pill success">
+                    <span>مدفوع مكتمل</span>
+                    <strong>@completedPaymentsAmount.ToString("N2")</strong>
+                </div>
+                <div class="summary-pill warning">
+                    <span>بانتظار التحصيل</span>
+                    <strong>@pendingPaymentsAmount.ToString("N2")</strong>
+                </div>
+                <div class="summary-pill danger">
+                    <span>فشل أو مرتجع</span>
+                    <strong>@failedPaymentsAmount.ToString("N2")</strong>
+                </div>
+            </div>
+
+            <div class="recent-list">
+                @if (recentPayments.Count == 0)
+                {
+                    <div class="empty-state">لا توجد مدفوعات مسجلة بعد.</div>
+                }
+                else
+                {
+                    @foreach (var payment in recentPayments)
+                    {
+                        <div class="list-row">
+                            <div>
+                                <strong>@payment.Amount.ToString("N2") د.ل</strong>
+                                <div class="list-meta">@GetPaymentStatusLabel(payment.PaymentStatus)</div>
+                            </div>
+                            <span>@payment.PaymentDate.ToString("yyyy/MM/dd")</span>
+                        </div>
+                    }
+                }
+            </div>
+        </article>
+
+        <article class="panel-card">
+            <div class="panel-head">
+                <div>
+                    <h2>آخر العملاء</h2>
+                    <p>أحدث العملاء الذين تم إدخالهم في قاعدة البيانات.</p>
+                </div>
+                <a class="panel-link" href="customers">عرض الكل</a>
+            </div>
+
+            <div class="recent-list">
+                @if (recentCustomers.Count == 0)
+                {
+                    <div class="empty-state">لا يوجد عملاء بعد. ابدأ بإضافة أول عميل.</div>
+                }
+                else
+                {
+                    @foreach (var customer in recentCustomers)
+                    {
+                        <div class="list-row customer-row">
+                            <div>
+                                <strong>@customer.FullName</strong>
+                                <div class="list-meta">@customer.PhoneNumber</div>
+                            </div>
+                            <span>@customer.RegistraionDate.ToLocalTime().ToString("yyyy/MM/dd")</span>
+                        </div>
+                    }
+                }
+            </div>
+        </article>
+    </section>
+
+    <section class="dashboard-columns">
+        <article class="panel-card">
+            <div class="panel-head">
+                <div>
+                    <h2>حالة المعدات</h2>
+                    <p>توزيع المعدات الحالية حسب حالتها التشغيلية.</p>
+                </div>
+                <a class="panel-link" href="equipment">إدارة المعدات</a>
+            </div>
+
+            <div class="condition-grid">
+                @foreach (var condition in equipmentConditionSummary)
+                {
+                    <div class="condition-card">
+                        <span>@condition.Label</span>
+                        <strong>@condition.Count</strong>
+                    </div>
+                }
+            </div>
+        </article>
+
+        <article class="panel-card">
+            <div class="panel-head">
+                <div>
+                    <h2>ماذا نعمل الآن؟</h2>
+                    <p>الخطوات الأقرب لإكمال النظام وظيفيًا.</p>
+                </div>
+            </div>
+
+            <div class="task-list">
+                <a class="task-item" href="home">
+                    <strong>الصفحة الرئيسية</strong>
+                    <span>تم تحويلها إلى لوحة تحكم عملية بدل الصفحة الافتراضية.</span>
+                </a>
+                <a class="task-item" href="customers">
+                    <strong>بيانات العملاء</strong>
+                    <span>إدارة العملاء والمزامنة أصبحت جزءًا من التشغيل الأساسي.</span>
+                </a>
+                <a class="task-item" href="contracts">
+                    <strong>المدفوعات</strong>
+                    <span>السجل المحلي جاهز، والخطوة التالية ربطه بالعقود والفواتير.</span>
+                </a>
+            </div>
+        </article>
+    </section>
+</div>
+
+@code {
+    private bool apiHealthy;
+    private bool isLoading;
+    private int customersAddedThisWeek;
+    private string apiStatusText = "جارٍ التحقق...";
+    private string lastSyncText = "لم تتم مزامنة بعد";
+
+    private decimal totalPaymentsAmount;
+    private decimal completedPaymentsAmount;
+    private decimal pendingPaymentsAmount;
+    private decimal failedPaymentsAmount;
+
+    private List<Customer> recentCustomers = new();
+    private List<Payment> recentPayments = new();
+    private List<DashboardMetric> stats = new();
+    private List<EquipmentConditionMetric> equipmentConditionSummary = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshDashboardAsync();
+    }
+
+    private async Task RefreshDashboardAsync()
+    {
+        if (isLoading)
+        {
+            return;
+        }
+
+        isLoading = true;
+
+        try
+        {
+            var customerCount = await LocalDb.Customers.CountAsync();
+            var equipmentCount = await LocalDb.Equipments.CountAsync();
+            var categoryCount = await LocalDb.Categories.CountAsync();
+            var paymentCount = await LocalDb.Payments.CountAsync();
+
+            recentCustomers = await LocalDb.Customers
+                .AsNoTracking()
+                .OrderByDescending(c => c.RegistraionDate)
+                .Take(5)
+                .ToListAsync();
+
+            recentPayments = await LocalDb.Payments
+                .AsNoTracking()
+                .OrderByDescending(p => p.PaymentDate)
+                .Take(5)
+                .ToListAsync();
+
+            var equipments = await LocalDb.Equipments
+                .AsNoTracking()
+                .ToListAsync();
+
+            var payments = await LocalDb.Payments
+                .AsNoTracking()
+                .ToListAsync();
+
+            var lastSync = await LocalDb.SyncLogs
+                .AsNoTracking()
+                .OrderByDescending(s => s.LastSyncDate)
+                .FirstOrDefaultAsync();
+
+            var weekStart = DateTime.UtcNow.AddDays(-7);
+            customersAddedThisWeek = await LocalDb.Customers.CountAsync(c => c.RegistraionDate >= weekStart);
+
+            totalPaymentsAmount = payments.Sum(p => p.Amount);
+            completedPaymentsAmount = payments
+                .Where(p => p.PaymentStatus == PaymentStatus.Completed)
+                .Sum(p => p.Amount);
+            pendingPaymentsAmount = payments
+                .Where(p => p.PaymentStatus == PaymentStatus.Pending)
+                .Sum(p => p.Amount);
+            failedPaymentsAmount = payments
+                .Where(p => p.PaymentStatus is PaymentStatus.Failed or PaymentStatus.Refunded)
+                .Sum(p => p.Amount);
+
+            lastSyncText = lastSync == null
+                ? "لم تتم مزامنة بعد"
+                : lastSync.LastSyncDate.ToLocalTime().ToString("yyyy/MM/dd - HH:mm");
+
+            equipmentConditionSummary = Enum.GetValues<EquipmentCondition>()
+                .Select(condition => new EquipmentConditionMetric(
+                    GetEquipmentConditionLabel(condition),
+                    equipments.Count(e => e.Status == condition)))
+                .ToList();
+
+            stats = new List<DashboardMetric>
+            {
+                new("العملاء", customerCount.ToString(), "عدد العملاء المسجلين داخل التطبيق", "bi-people-fill", "accent-blue"),
+                new("المعدات", equipmentCount.ToString(), "كل المعدات المضافة في النظام", "bi-tools", "accent-indigo"),
+                new("الفئات", categoryCount.ToString(), "عدد فئات المعدات الحالية", "bi-tags-fill", "accent-gold"),
+                new("إجمالي المدفوعات", $"{totalPaymentsAmount:N2} د.ل", "القيمة الإجمالية لكل عمليات الدفع", "bi-cash-stack", "accent-green"),
+                new("عمليات الدفع", paymentCount.ToString(), "عدد سجلات المدفوعات المحفوظة", "bi-credit-card-2-front-fill", "accent-rose"),
+                new("مزامنة الخادم", apiHealthy ? "متصل" : "غير متصل", "حالة خدمة الخلفية المحلية", "bi-cloud-check-fill", apiHealthy ? "accent-teal" : "accent-slate")
+            };
+
+            apiHealthy = await CheckApiHealthAsync();
+            apiStatusText = apiHealthy ? "متصل ويعمل" : "غير متصل حاليًا";
+
+            stats[^1] = new DashboardMetric(
+                "مزامنة الخادم",
+                apiHealthy ? "متصل" : "غير متصل",
+                "حالة خدمة الخلفية المحلية",
+                "bi-cloud-check-fill",
+                apiHealthy ? "accent-teal" : "accent-slate");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task<bool> CheckApiHealthAsync()
+    {
+        try
+        {
+            using var response = await Http.GetAsync("health");
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string GetPaymentStatusLabel(PaymentStatus status) => status switch
+    {
+        PaymentStatus.Completed => "مكتملة",
+        PaymentStatus.Pending => "بانتظار التحصيل",
+        PaymentStatus.Failed => "فاشلة",
+        PaymentStatus.Refunded => "مرتجعة",
+        _ => status.ToString()
+    };
+
+    private static string GetEquipmentConditionLabel(EquipmentCondition condition) => condition switch
+    {
+        EquipmentCondition.Excellent => "ممتازة",
+        EquipmentCondition.Good => "جيدة",
+        EquipmentCondition.Fair => "مقبولة",
+        EquipmentCondition.NeedsMaintenance => "تحتاج صيانة",
+        EquipmentCondition.Damaged => "تالفة",
+        _ => condition.ToString()
+    };
+
+    private sealed record DashboardMetric(string Label, string Value, string Note, string Icon, string AccentClass);
+
+    private sealed record EquipmentConditionMetric(string Label, int Count);
+}

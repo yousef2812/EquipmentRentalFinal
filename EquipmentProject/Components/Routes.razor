@@ -1,0 +1,26 @@
+@using EquipmentProject.Components.Pages.AuthPages
+@inject AuthSessionService AuthSession
+
+<Router AppAssembly="typeof(MauiProgram).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+    <Found Context="routeData">
+        @if (RequiresAuthentication(routeData) && !AuthSession.IsAuthenticated)
+        {
+            <RedirectTo Route="/login" />
+        }
+        else if (IsLoginRoute(routeData) && AuthSession.IsAuthenticated)
+        {
+            <RedirectTo Route="/home" />
+        }
+        else
+        {
+            <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        }
+    </Found>
+</Router>
+
+@code {
+    private static bool IsLoginRoute(RouteData routeData) => routeData.PageType == typeof(Login);
+
+    private static bool RequiresAuthentication(RouteData routeData) => !IsLoginRoute(routeData);
+}

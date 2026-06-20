@@ -1,0 +1,280 @@
+@page "/reports"
+@using EquipmentProject.Data
+@using Microsoft.EntityFrameworkCore
+@inject LocalDbContext LocalDb
+
+<PageTitle>التقارير</PageTitle>
+
+<div class="reports-shell" dir="rtl">
+    <section class="reports-hero">
+        <div>
+            <div class="hero-kicker">Business Overview</div>
+            <h1>التقارير التشغيلية</h1>
+            <p>ملخص شامل للحركة المالية، العقود، الصيانة، والمعدات لمساعدتك في متابعة الأداء واتخاذ القرار.</p>
+        </div>
+
+        <div class="hero-actions">
+            <RadzenButton Text="تحديث البيانات"
+                          Icon="refresh"
+                          Click="@(_ => LoadReportAsync())"
+                          ButtonStyle="ButtonStyle.Primary"
+                          Disabled="@isLoading" />
+        </div>
+    </section>
+
+    <section class="stats-grid">
+        @foreach (var stat in stats)
+        {
+            <article class="metric-card">
+                <div class="metric-icon @stat.AccentClass">
+                    <span class="@($"bi {stat.Icon}")" aria-hidden="true"></span>
+                </div>
+                <div>
+                    <div class="metric-label">@stat.Label</div>
+                    <div class="metric-value">@stat.Value</div>
+                    <div class="metric-note">@stat.Note</div>
+                </div>
+            </article>
+        }
+    </section>
+
+    <section class="reports-columns">
+        <article class="panel-card">
+            <div class="panel-head">
+                <div>
+                    <h2>العقود المتأخرة</h2>
+                    <p>العقود التي تجاوزت تاريخ النهاية ولم تُغلق بعد.</p>
+                </div>
+                <a class="panel-link" href="contracts">فتح العقود</a>
+            </div>
+
+            <div class="recent-list">
+                @if (overdueContracts.Count == 0)
+                {
+                    <div class="empty-state">لا توجد عقود متأخرة حالياً.</div>
+                }
+                else
+                {
+                    @foreach (var contract in overdueContracts)
+                    {
+                        <div class="list-row">
+                            <div>
+                                <strong>@contract.ContractNumber</strong>
+                                <div class="list-meta">@contract.CustomerName</div>
+                            </div>
+                            <span>@contract.EndDate.ToString("yyyy/MM/dd")</span>
+                        </div>
+                    }
+                }
+            </div>
+        </article>
+
+        <article class="panel-card">
+            <div class="panel-head">
+                <div>
+                    <h2>صيانة قريبة أو متأخرة</h2>
+                    <p>المعدات التي تحتاج متابعة خلال سبعة أيام أو تجاوزت موعد الصيانة.</p>
+                </div>
+                <a class="panel-link" href="maintenance">فتح الصيانة</a>
+            </div>
+
+            <div class="recent-list">
+                @if (maintenanceAlerts.Count == 0)
+                {
+                    <div class="empty-state">لا توجد تنبيهات صيانة حالياً.</div>
+                }
+                else
+                {
+                    @foreach (var item in maintenanceAlerts)
+                    {
+                        <div class="list-row">
+                            <div>
+                                <strong>@item.EquipmentName</strong>
+                                <div class="list-meta">@item.MaintenanceType</div>
+                            </div>
+                            <span class="@(item.IsOverdue ? "danger-text" : "warning-text")">@item.NextMaintenanceDate.ToString("yyyy/MM/dd")</span>
+                        </div>
+                    }
+                }
+            </div>
+        </article>
+    </section>
+
+    <section class="reports-columns">
+        <article class="panel-card">
+            <div class="panel-head">
+                <div>
+                    <h2>أحدث المدفوعات</h2>
+                    <p>آخر حركة تحصيل مسجلة في النظام.</p>
+                </div>
+                <a class="panel-link" href="payments">فتح المدفوعات</a>
+            </div>
+
+            <div class="recent-list">
+                @if (recentPayments.Count == 0)
+                {
+                    <div class="empty-state">لا توجد مدفوعات مسجلة بعد.</div>
+                }
+                else
+                {
+                    @foreach (var payment in recentPayments)
+                    {
+                        <div class="list-row">
+                            <div>
+                                <strong>@payment.Amount.ToString("N2") د.ل</strong>
+                                <div class="list-meta">@GetPaymentLabel(payment)</div>
+                            </div>
+                            <span>@payment.PaymentDate.ToString("yyyy/MM/dd")</span>
+                        </div>
+                    }
+                }
+            </div>
+        </article>
+
+        <article class="panel-card">
+            <div class="panel-head">
+                <div>
+                    <h2>أفضل العملاء بالحركة</h2>
+                    <p>العملاء الأكثر ارتباطاً بعقود مسجلة داخل النظام.</p>
+                </div>
+                <a class="panel-link" href="customers">فتح العملاء</a>
+            </div>
+
+            <div class="recent-list">
+                @if (topCustomers.Count == 0)
+                {
+                    <div class="empty-state">لا توجد بيانات كافية لحساب العملاء النشطين.</div>
+                }
+                else
+                {
+                    @foreach (var customer in topCustomers)
+                    {
+                        <div class="list-row">
+                            <div>
+                                <strong>@customer.CustomerName</strong>
+                                <div class="list-meta">@customer.ContractCount عقود</div>
+                            </div>
+                            <span>@customer.TotalValue.ToString("N2") د.ل</span>
+                        </div>
+                    }
+                }
+            </div>
+        </article>
+    </section>
+</div>
+
+@code {
+    private bool isLoading;
+    private List<ReportMetric> stats = new();
+    private List<OverdueContractItem> overdueContracts = new();
+    private List<MaintenanceAlertItem> maintenanceAlerts = new();
+    private List<Payment> recentPayments = new();
+    private List<TopCustomerItem> topCustomers = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadReportAsync();
+    }
+
+    private async Task LoadReportAsync()
+    {
+        if (isLoading)
+        {
+            return;
+        }
+
+        isLoading = true;
+
+        try
+        {
+            var customers = await LocalDb.Customers.AsNoTracking().ToListAsync();
+            var equipments = await LocalDb.Equipments.AsNoTracking().ToListAsync();
+            var contracts = await LocalDb.RentalContracts.AsNoTracking().ToListAsync();
+            var payments = await LocalDb.Payments.AsNoTracking().ToListAsync();
+            var maintenances = await LocalDb.Maintenances.AsNoTracking().ToListAsync();
+
+            var activeContracts = contracts.Count(c => c.Status is RentalStatus.Active or RentalStatus.Extended);
+            var overdueContractsRaw = contracts
+                .Where(c => c.Status != RentalStatus.Completed && c.Status != RentalStatus.Canceled && c.EndDate.Date < DateTime.Today)
+                .OrderBy(c => c.EndDate)
+                .ToList();
+
+            var paidAmount = payments
+                .Where(p => p.PaymentStatus == PaymentStatus.Completed)
+                .Sum(p => p.Amount);
+
+            var contractsValue = contracts.Sum(c => c.TotalAmount);
+            var outstanding = Math.Max(0m, contractsValue - paidAmount);
+            var rentedEquipments = equipments.Count(e => e.IsRented);
+            var dueMaintenance = maintenances.Count(m => m.NextMaintenanceDate.Date <= DateTime.Today.AddDays(7));
+
+            stats = new List<ReportMetric>
+            {
+                new("إجمالي العملاء", customers.Count.ToString(), "كل العملاء المسجلين", "bi-people-fill", "accent-blue"),
+                new("العقود النشطة", activeContracts.ToString(), "العقود المفتوحة حالياً", "bi-file-earmark-text-fill", "accent-indigo"),
+                new("المعدات المؤجرة", rentedEquipments.ToString(), "المعدات المرتبطة بعقود حالية", "bi-tools", "accent-gold"),
+                new("المحصل", $"{paidAmount:N2} د.ل", "المدفوعات المكتملة", "bi-cash-stack", "accent-green"),
+                new("المتبقي", $"{outstanding:N2} د.ل", "رصيد لم يُحصّل بعد", "bi-credit-card-2-front-fill", "accent-rose"),
+                new("تنبيهات الصيانة", dueMaintenance.ToString(), "قريبة أو متأخرة", "bi-wrench-adjustable-circle-fill", "accent-teal")
+            };
+
+            overdueContracts = overdueContractsRaw
+                .Take(6)
+                .Select(c => new OverdueContractItem(
+                    c.ContractNumber,
+                    c.Name,
+                    c.EndDate == default ? c.CreatedAt : c.EndDate))
+                .ToList();
+
+            maintenanceAlerts = maintenances
+                .Where(m => m.NextMaintenanceDate.Date <= DateTime.Today.AddDays(7))
+                .OrderBy(m => m.NextMaintenanceDate)
+                .Take(6)
+                .Select(m => new MaintenanceAlertItem(
+                    m.EquipmentName,
+                    m.MaintenanceType,
+                    m.NextMaintenanceDate,
+                    m.NextMaintenanceDate.Date < DateTime.Today))
+                .ToList();
+
+            recentPayments = payments
+                .OrderByDescending(p => p.PaymentDate)
+                .Take(6)
+                .ToList();
+
+            topCustomers = contracts
+                .Where(c => !string.IsNullOrWhiteSpace(c.Name))
+                .GroupBy(c => c.Name)
+                .Select(g => new TopCustomerItem(
+                    g.Key,
+                    g.Count(),
+                    g.Sum(x => x.TotalAmount)))
+                .OrderByDescending(x => x.ContractCount)
+                .ThenByDescending(x => x.TotalValue)
+                .Take(6)
+                .ToList();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private static string GetPaymentLabel(Payment payment)
+    {
+        if (!string.IsNullOrWhiteSpace(payment.ContractNumber))
+        {
+            return $"{payment.CustomerName ?? "بدون عميل"} - {payment.ContractNumber}";
+        }
+
+        return payment.CustomerName ?? "دفعة عامة";
+    }
+
+    private sealed record ReportMetric(string Label, string Value, string Note, string Icon, string AccentClass);
+
+    private sealed record OverdueContractItem(string ContractNumber, string CustomerName, DateTime EndDate);
+
+    private sealed record MaintenanceAlertItem(string EquipmentName, string MaintenanceType, DateTime NextMaintenanceDate, bool IsOverdue);
+
+    private sealed record TopCustomerItem(string CustomerName, int ContractCount, decimal TotalValue);
+}

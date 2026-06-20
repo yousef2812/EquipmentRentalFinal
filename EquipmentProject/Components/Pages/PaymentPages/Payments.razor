@@ -1,0 +1,432 @@
+@page "/payments"
+@using EquipmentProject.Data
+@using Microsoft.EntityFrameworkCore
+@using SharedEquipment.Models
+@inject LocalDbContext LocalDb
+@inject NotificationService NotificationService
+
+<div class="container mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
+        <h3 class="m-0 text-secondary">إدارة المدفوعات</h3>
+        <RadzenBadge BadgeKind="BadgeKind.Pill"
+                     Variant="Variant.Flat"
+                     Severity="NotificationSeverity.Info"
+                     Text="@($"{payments.Count} دفعة")"
+                     Style="font-size: 14px; padding: 8px 12px;" />
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <RadzenCard Variant="Variant.Filled" class="text-center shadow-sm">
+                <div class="fs-5 fw-bold text-success">@totalPaid.ToString("N2") د.ل</div>
+                <div class="text-muted small">إجمالي المدفوع المكتمل</div>
+            </RadzenCard>
+        </div>
+        <div class="col-md-3">
+            <RadzenCard Variant="Variant.Filled" class="text-center shadow-sm">
+                <div class="fs-5 fw-bold text-warning">@totalPending.ToString("N2") د.ل</div>
+                <div class="text-muted small">مدفوعات قيد الانتظار</div>
+            </RadzenCard>
+        </div>
+        <div class="col-md-3">
+            <RadzenCard Variant="Variant.Filled" class="text-center shadow-sm">
+                <div class="fs-5 fw-bold text-danger">@totalFailed.ToString("N2") د.ل</div>
+                <div class="text-muted small">مدفوعات فاشلة أو مستردة</div>
+            </RadzenCard>
+        </div>
+        <div class="col-md-3">
+            <RadzenCard Variant="Variant.Filled" class="text-center shadow-sm">
+                <div class="fs-5 fw-bold text-primary">@payments.Count</div>
+                <div class="text-muted small">إجمالي العمليات</div>
+            </RadzenCard>
+        </div>
+    </div>
+
+    <RadzenCard Variant="Variant.Filled" class="mb-4 shadow-sm">
+        <h5 class="text-primary mb-3 fw-bold">
+            @(isEditMode ? "تعديل بيانات الدفعة" : "إضافة دفعة جديدة")
+        </h5>
+
+        @if (!string.IsNullOrWhiteSpace(formErrorMessage))
+        {
+            <div class="alert alert-danger mb-3">@formErrorMessage</div>
+        }
+
+        <EditForm Model="@paymentModel" OnValidSubmit="HandleSubmitAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="text-danger mb-3" />
+
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">المبلغ</label>
+                    <RadzenNumeric @bind-Value="paymentModel.Amount"
+                                   Placeholder="0.00"
+                                   Min="@(0.01m)"
+                                   Max="@(100000m)"
+                                   class="w-100" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">تاريخ الدفع</label>
+                    <RadzenDatePicker @bind-Value="paymentModel.PaymentDate"
+                                      DateFormat="yyyy/MM/dd"
+                                      class="w-100" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">طريقة الدفع</label>
+                    <RadzenDropDown @bind-Value="paymentModel.PaymentMethod"
+                                    Data="@paymentMethodOptions"
+                                    TextProperty="Label"
+                                    ValueProperty="Value"
+                                    Placeholder="اختر الطريقة"
+                                    class="w-100" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">حالة الدفع</label>
+                    <RadzenDropDown @bind-Value="paymentModel.PaymentStatus"
+                                    Data="@paymentStatusOptions"
+                                    TextProperty="Label"
+                                    ValueProperty="Value"
+                                    Placeholder="اختر الحالة"
+                                    class="w-100" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">رقم المرجع</label>
+                    <RadzenTextBox @bind-Value="paymentModel.RefrenceNumber"
+                                   Placeholder="REF-00001"
+                                   class="w-100 text-start" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">رابط الإيصال</label>
+                    <RadzenTextBox @bind-Value="paymentModel.ReceiptUrl"
+                                   Placeholder="https://..."
+                                   class="w-100 text-start" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">ملاحظات</label>
+                    <RadzenTextBox @bind-Value="paymentModel.Notes"
+                                   Placeholder="أي تفاصيل إضافية"
+                                   class="w-100" />
+                </div>
+
+                <div class="col-md-12 d-flex justify-content-end gap-2">
+                    @if (isEditMode)
+                    {
+                        <RadzenButton ButtonType="ButtonType.Submit"
+                                      Text="تحديث"
+                                      ButtonStyle="ButtonStyle.Warning"
+                                      class="fw-bold px-4" />
+                        <RadzenButton ButtonType="ButtonType.Button"
+                                      Text="إلغاء"
+                                      ButtonStyle="ButtonStyle.Secondary"
+                                      Click="CancelEdit"
+                                      class="fw-bold px-4" />
+                    }
+                    else
+                    {
+                        <RadzenButton ButtonType="ButtonType.Submit"
+                                      Text="حفظ الدفعة"
+                                      ButtonStyle="ButtonStyle.Success"
+                                      class="fw-bold px-4" />
+                    }
+                </div>
+            </div>
+        </EditForm>
+    </RadzenCard>
+
+    <RadzenCard Variant="Variant.Outlined" class="shadow-sm">
+        <h5 class="mb-3 text-secondary fw-bold">سجل المدفوعات</h5>
+
+        <RadzenDataGrid AllowFiltering="true"
+                        FilterMode="FilterMode.Simple"
+                        AllowPaging="true"
+                        PageSize="8"
+                        AllowSorting="true"
+                        Data="@payments"
+                        TItem="Payment"
+                        ColumnWidth="160px"
+                        EmptyText="لا توجد مدفوعات مسجلة حالياً.">
+            <Columns>
+                <RadzenDataGridColumn TItem="Payment" Title="المبلغ" Property="Amount" Frozen="true">
+                    <Template Context="data">
+                        <span class="fw-bold text-success">@data.Amount.ToString("N2") د.ل</span>
+                    </Template>
+                </RadzenDataGridColumn>
+
+                <RadzenDataGridColumn TItem="Payment" Title="تاريخ الدفع" Filterable="false">
+                    <Template Context="data">
+                        @data.PaymentDate.ToString("yyyy/MM/dd")
+                    </Template>
+                </RadzenDataGridColumn>
+
+                <RadzenDataGridColumn TItem="Payment" Property="CustomerName" Title="العميل" Filterable="false">
+                    <Template Context="data">
+                        @(string.IsNullOrWhiteSpace(data.CustomerName) ? "—" : data.CustomerName)
+                    </Template>
+                </RadzenDataGridColumn>
+
+                <RadzenDataGridColumn TItem="Payment" Property="ContractNumber" Title="العقد" Filterable="false">
+                    <Template Context="data">
+                        @if (string.IsNullOrWhiteSpace(data.ContractNumber) || !data.RentalContractId.HasValue)
+                        {
+                            <span>—</span>
+                        }
+                        else
+                        {
+                            <a href="@($"contracts/{data.RentalContractId.Value}/invoice")">@data.ContractNumber</a>
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+
+                <RadzenDataGridColumn TItem="Payment" Title="طريقة الدفع" Filterable="false">
+                    <Template Context="data">
+                        @GetPaymentMethodLabel(data.PaymentMethod)
+                    </Template>
+                </RadzenDataGridColumn>
+
+                <RadzenDataGridColumn TItem="Payment" Title="الحالة" Filterable="false">
+                    <Template Context="data">
+                        <RadzenBadge Variant="Variant.Flat"
+                                     Severity="@GetStatusSeverity(data.PaymentStatus)"
+                                     Text="@GetStatusLabel(data.PaymentStatus)" />
+                    </Template>
+                </RadzenDataGridColumn>
+
+                <RadzenDataGridColumn TItem="Payment" Property="RefrenceNumber" Title="رقم المرجع" Filterable="false">
+                    <Template Context="data">
+                        @(string.IsNullOrWhiteSpace(data.RefrenceNumber) ? "—" : data.RefrenceNumber)
+                    </Template>
+                </RadzenDataGridColumn>
+
+                <RadzenDataGridColumn TItem="Payment" Property="Notes" Title="ملاحظات" Filterable="false">
+                    <Template Context="data">
+                        @(string.IsNullOrWhiteSpace(data.Notes) ? "—" : data.Notes)
+                    </Template>
+                </RadzenDataGridColumn>
+
+                <RadzenDataGridColumn TItem="Payment" Title="تاريخ التسجيل" Filterable="false">
+                    <Template Context="data">
+                        @data.CreatedAt.ToLocalTime().ToString("g")
+                    </Template>
+                </RadzenDataGridColumn>
+
+                <RadzenDataGridColumn TItem="Payment" Title="إجراءات" Filterable="false" Sortable="false" Width="160px">
+                    <Template Context="pay">
+                        <div class="d-flex gap-1">
+                            <RadzenButton Icon="edit"
+                                          ButtonStyle="ButtonStyle.Warning"
+                                          Size="ButtonSize.Small"
+                                          Click="() => PrepareForEdit(pay)"
+                                          Tooltip="تعديل" />
+                            <RadzenButton Icon="delete"
+                                          ButtonStyle="ButtonStyle.Danger"
+                                          Size="ButtonSize.Small"
+                                          Click="() => DeletePaymentAsync(pay.Id)"
+                                          Tooltip="حذف" />
+                        </div>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    </RadzenCard>
+</div>
+
+@code {
+    private List<Payment> payments = new();
+    private Payment paymentModel = CreateEmptyPayment();
+    private bool isEditMode;
+    private string formErrorMessage = string.Empty;
+
+    private decimal totalPaid => payments.Where(p => p.PaymentStatus == PaymentStatus.Completed).Sum(p => p.Amount);
+    private decimal totalPending => payments.Where(p => p.PaymentStatus == PaymentStatus.Pending).Sum(p => p.Amount);
+    private decimal totalFailed => payments.Where(p => p.PaymentStatus is PaymentStatus.Failed or PaymentStatus.Refunded).Sum(p => p.Amount);
+
+    private record OptionItem<T>(string Label, T Value);
+
+    private readonly List<OptionItem<PaymentMethod>> paymentMethodOptions = new()
+    {
+        new("نقداً", PaymentMethod.Cash),
+        new("بطاقة ائتمان", PaymentMethod.CreditCard),
+        new("تحويل بنكي", PaymentMethod.BankTransfer),
+        new("محفظة إلكترونية", PaymentMethod.DigitalWallet)
+    };
+
+    private readonly List<OptionItem<PaymentStatus>> paymentStatusOptions = new()
+    {
+        new("في الانتظار", PaymentStatus.Pending),
+        new("مكتملة", PaymentStatus.Completed),
+        new("فشلت", PaymentStatus.Failed),
+        new("مستردة", PaymentStatus.Refunded)
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPaymentsAsync();
+    }
+
+    private async Task LoadPaymentsAsync()
+    {
+        payments = await LocalDb.Payments
+            .AsNoTracking()
+            .OrderByDescending(p => p.PaymentDate)
+            .ThenByDescending(p => p.Id)
+            .ToListAsync();
+    }
+
+    private async Task HandleSubmitAsync()
+    {
+        formErrorMessage = string.Empty;
+        NormalizePayment();
+
+        if (!ValidatePayment())
+        {
+            return;
+        }
+
+        paymentModel.UpdatedAt = DateTime.UtcNow;
+
+        if (isEditMode)
+        {
+            LocalDb.Payments.Update(paymentModel);
+            ShowNotification(NotificationSeverity.Success, "تم التحديث", "تم تحديث بيانات الدفعة بنجاح.");
+        }
+        else
+        {
+            paymentModel.CreatedAt = DateTime.UtcNow;
+            await LocalDb.Payments.AddAsync(paymentModel);
+            ShowNotification(NotificationSeverity.Success, "تم الحفظ", "تم تسجيل الدفعة بنجاح.");
+        }
+
+        await LocalDb.SaveChangesAsync();
+        await CancelEdit();
+        await LoadPaymentsAsync();
+    }
+
+    private void PrepareForEdit(Payment payment)
+    {
+        formErrorMessage = string.Empty;
+        paymentModel = ClonePayment(payment);
+        isEditMode = true;
+    }
+
+    private Task CancelEdit()
+    {
+        formErrorMessage = string.Empty;
+        paymentModel = CreateEmptyPayment();
+        isEditMode = false;
+        return Task.CompletedTask;
+    }
+
+    private async Task DeletePaymentAsync(int id)
+    {
+        if (paymentModel.Id == id)
+        {
+            await CancelEdit();
+        }
+
+        var payment = await LocalDb.Payments.FindAsync(id);
+        if (payment is null)
+        {
+            return;
+        }
+
+        LocalDb.Payments.Remove(payment);
+        await LocalDb.SaveChangesAsync();
+        await LoadPaymentsAsync();
+
+        ShowNotification(NotificationSeverity.Success, "تم الحذف", "تم حذف الدفعة بنجاح.");
+    }
+
+    private void NormalizePayment()
+    {
+        paymentModel.RefrenceNumber = paymentModel.RefrenceNumber?.Trim();
+        paymentModel.ReceiptUrl = paymentModel.ReceiptUrl?.Trim();
+        paymentModel.Notes = paymentModel.Notes?.Trim();
+        paymentModel.ContractNumber = paymentModel.ContractNumber?.Trim();
+        paymentModel.CustomerName = paymentModel.CustomerName?.Trim();
+
+        if (paymentModel.PaymentDate == default)
+        {
+            paymentModel.PaymentDate = DateTime.Today;
+        }
+    }
+
+    private bool ValidatePayment()
+    {
+        if (paymentModel.Amount <= 0)
+        {
+            formErrorMessage = "يرجى إدخال مبلغ صحيح.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private NotificationSeverity GetStatusSeverity(PaymentStatus status) => status switch
+    {
+        PaymentStatus.Completed => NotificationSeverity.Success,
+        PaymentStatus.Pending => NotificationSeverity.Warning,
+        PaymentStatus.Failed => NotificationSeverity.Error,
+        PaymentStatus.Refunded => NotificationSeverity.Error,
+        _ => NotificationSeverity.Info
+    };
+
+    private string GetStatusLabel(PaymentStatus status) => status switch
+    {
+        PaymentStatus.Completed => "مكتملة",
+        PaymentStatus.Pending => "في الانتظار",
+        PaymentStatus.Failed => "فشلت",
+        PaymentStatus.Refunded => "مستردة",
+        _ => status.ToString()
+    };
+
+    private string GetPaymentMethodLabel(PaymentMethod method) => method switch
+    {
+        PaymentMethod.Cash => "نقداً",
+        PaymentMethod.CreditCard => "بطاقة ائتمان",
+        PaymentMethod.BankTransfer => "تحويل بنكي",
+        PaymentMethod.DigitalWallet => "محفظة إلكترونية",
+        _ => method.ToString()
+    };
+
+    private static Payment ClonePayment(Payment payment) => new()
+    {
+        Id = payment.Id,
+        Amount = payment.Amount,
+        PaymentDate = payment.PaymentDate,
+        PaymentMethod = payment.PaymentMethod,
+        RefrenceNumber = payment.RefrenceNumber,
+        ReceiptUrl = payment.ReceiptUrl,
+        Notes = payment.Notes,
+        PaymentStatus = payment.PaymentStatus,
+        RentalContractId = payment.RentalContractId,
+        ContractNumber = payment.ContractNumber,
+        CustomerName = payment.CustomerName,
+        CreatedAt = payment.CreatedAt,
+        UpdatedAt = payment.UpdatedAt,
+        CreatedBy = payment.CreatedBy
+    };
+
+    private static Payment CreateEmptyPayment() => new()
+    {
+        PaymentDate = DateTime.Today,
+        PaymentMethod = PaymentMethod.Cash,
+        PaymentStatus = PaymentStatus.Pending
+    };
+
+    private void ShowNotification(NotificationSeverity severity, string summary, string detail)
+    {
+        NotificationService.Notify(new NotificationMessage
+        {
+            Severity = severity,
+            Summary = summary,
+            Detail = detail,
+            Duration = 4000
+        });
+    }
+}

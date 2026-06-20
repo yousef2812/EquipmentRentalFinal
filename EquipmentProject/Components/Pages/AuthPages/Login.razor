@@ -1,0 +1,115 @@
+@page "/"
+@page "/login"
+@layout AuthLayout
+@inject AuthSessionService AuthSession
+@inject NavigationManager Navigation
+
+<PageTitle>تسجيل الدخول</PageTitle>
+
+<div class="login-page" dir="rtl">
+    <section class="login-intro">
+        <span class="intro-badge">EquipmentRental</span>
+        <h1>نظام إدارة تأجير المعدات</h1>
+        <p>
+            دخول سريع وبسيط لمتابعة العملاء والمعدات والعقود والمدفوعات من مكان واحد.
+        </p>
+
+        <div class="intro-points">
+            <div class="intro-point">
+                <strong>دخول مباشر</strong>
+                <span>رقم الهاتف وكلمة المرور فقط بدون خطوات إضافية.</span>
+            </div>
+            <div class="intro-point">
+                <strong>تشغيل يومي بسيط</strong>
+                <span>إدارة العملاء والمعدات والعقود من نفس الواجهة.</span>
+            </div>
+            <div class="intro-point">
+                <strong>نسخة عملية</strong>
+                <span>واجهة بسيطة والتركيز فيها على التشغيل بدون تعقيد.</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="login-panel">
+        <EditForm Model="loginModel" OnValidSubmit="HandleLoginAsync">
+            <DataAnnotationsValidator />
+
+            <div class="login-card">
+                <div class="card-head">
+                    <h2>تسجيل الدخول</h2>
+                    <p>أدخل رقم الهاتف وكلمة المرور للمتابعة.</p>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(errorMessage))
+                {
+                    <div class="login-alert">@errorMessage</div>
+                }
+
+                <div class="field-group">
+                    <label for="phoneNumber">رقم الهاتف</label>
+                    <InputText id="phoneNumber"
+                               class="form-control login-input"
+                               @bind-Value="loginModel.PhoneNumber"
+                               placeholder="09xxxxxxxx" />
+                    <ValidationMessage For="@(() => loginModel.PhoneNumber)" />
+                </div>
+
+                <div class="field-group">
+                    <label for="password">كلمة المرور</label>
+                    <InputText id="password"
+                               type="password"
+                               class="form-control login-input"
+                               @bind-Value="loginModel.Password"
+                               placeholder="أدخل كلمة المرور" />
+                    <ValidationMessage For="@(() => loginModel.Password)" />
+                </div>
+
+                <button class="login-button" type="submit" disabled="@isSubmitting">
+                    @(isSubmitting ? "جارٍ التحقق..." : "دخول إلى النظام")
+                </button>
+            </div>
+        </EditForm>
+    </section>
+</div>
+
+@code {
+    private readonly LoginInputModel loginModel = new();
+    private bool isSubmitting;
+    private string errorMessage = string.Empty;
+
+    private async Task HandleLoginAsync()
+    {
+        if (isSubmitting)
+        {
+            return;
+        }
+
+        isSubmitting = true;
+        errorMessage = string.Empty;
+
+        try
+        {
+            var result = await AuthSession.SignInAsync(loginModel.PhoneNumber, loginModel.Password);
+            if (!result.Succeeded)
+            {
+                errorMessage = result.Message;
+                return;
+            }
+
+            Navigation.NavigateTo("/home", replace: true);
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private sealed class LoginInputModel
+    {
+        [Required(ErrorMessage = "أدخل رقم الهاتف.")]
+        public string PhoneNumber { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "أدخل كلمة المرور.")]
+        public string Password { get; set; } = string.Empty;
+    }
+}

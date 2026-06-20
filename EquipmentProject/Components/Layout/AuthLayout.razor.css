@@ -1,0 +1,11 @@
+.auth-layout {
+    min-height: 100vh;
+    background:
+        radial-gradient(circle at top right, rgba(33, 93, 195, 0.18), transparent 25%),
+        radial-gradient(circle at bottom left, rgba(128, 43, 133, 0.16), transparent 28%),
+        linear-gradient(180deg, #eef4ff 0%, #f7f8fc 100%);
+}
+
+.auth-main {
+    min-height: 100vh;
+}

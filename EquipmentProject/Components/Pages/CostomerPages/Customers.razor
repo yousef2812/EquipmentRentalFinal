@@ -1,0 +1,296 @@
+@page "/customers"
+@using EquipmentProject.Data
+@using Microsoft.EntityFrameworkCore
+@using SharedEquipment.Models
+@inject LocalDbContext LocalDb
+@inject NotificationService NotificationService
+
+<div class="container mt-4" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
+        <h3 class="m-0 text-secondary">إدارة العملاء</h3>
+        <RadzenBadge BadgeKind="BadgeKind.Pill"
+                     Variant="Variant.Flat"
+                     Severity="NotificationSeverity.Info"
+                     Text="@($"{customers.Count} عميل")"
+                     Style="font-size: 14px; padding: 8px 12px;" />
+    </div>
+
+    <RadzenCard Variant="Variant.Filled" class="mb-4 shadow-sm">
+        <h5 class="text-primary mb-3 fw-bold">
+            @(isEditMode ? "تعديل بيانات العميل" : "إضافة عميل جديد")
+        </h5>
+
+        @if (!string.IsNullOrWhiteSpace(formErrorMessage))
+        {
+            <div class="alert alert-danger mb-3">@formErrorMessage</div>
+        }
+
+        <EditForm Model="@customerModel" OnValidSubmit="HandleSubmitAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="text-danger mb-3" />
+
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">الاسم الكامل</label>
+                    <RadzenTextBox @bind-Value="customerModel.FullName"
+                                   Placeholder="اكتب اسم العميل"
+                                   class="w-100" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">البريد الإلكتروني</label>
+                    <RadzenTextBox @bind-Value="customerModel.Email"
+                                   Placeholder="name@example.com"
+                                   class="w-100 text-start" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">رقم الهاتف</label>
+                    <RadzenTextBox @bind-Value="customerModel.PhoneNumber"
+                                   Placeholder="09xxxxxxxx"
+                                   class="w-100 text-start" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">رقم الهوية</label>
+                    <RadzenTextBox @bind-Value="customerModel.IdentityNumber"
+                                   Placeholder="123456789"
+                                   class="w-100 text-start" />
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label fw-bold">العنوان</label>
+                    <RadzenTextBox @bind-Value="customerModel.Address"
+                                   Placeholder="المدينة، الشارع"
+                                   class="w-100" />
+                </div>
+                <div class="col-md-3 ms-auto d-flex align-items-end gap-2">
+                    @if (isEditMode)
+                    {
+                        <RadzenButton ButtonType="ButtonType.Submit"
+                                      Text="تحديث"
+                                      ButtonStyle="ButtonStyle.Warning"
+                                      class="w-100 fw-bold" />
+                        <RadzenButton ButtonType="ButtonType.Button"
+                                      Text="إلغاء"
+                                      ButtonStyle="ButtonStyle.Secondary"
+                                      Click="CancelEdit"
+                                      class="w-100 fw-bold" />
+                    }
+                    else
+                    {
+                        <RadzenButton ButtonType="ButtonType.Submit"
+                                      Text="حفظ العميل"
+                                      ButtonStyle="ButtonStyle.Success"
+                                      class="w-100 fw-bold" />
+                    }
+                </div>
+            </div>
+        </EditForm>
+    </RadzenCard>
+
+    <RadzenCard Variant="Variant.Outlined" class="shadow-sm">
+        <h5 class="mb-3 text-secondary fw-bold">قائمة العملاء</h5>
+
+        <RadzenDataGrid AllowFiltering="true"
+                        FilterMode="FilterMode.Simple"
+                        AllowPaging="true"
+                        PageSize="8"
+                        AllowSorting="true"
+                        Data="@customers"
+                        TItem="Customer"
+                        ColumnWidth="200px"
+                        EmptyText="لا يوجد عملاء مسجلون حالياً.">
+            <Columns>
+                <RadzenDataGridColumn TItem="Customer" Property="FullName" Title="الاسم الكامل" Frozen="true" />
+                <RadzenDataGridColumn TItem="Customer" Property="Email" Title="البريد الإلكتروني" Filterable="false" />
+                <RadzenDataGridColumn TItem="Customer" Property="PhoneNumber" Title="رقم الهاتف" Filterable="false" />
+                <RadzenDataGridColumn TItem="Customer" Property="IdentityNumber" Title="رقم الهوية" Filterable="false" />
+                <RadzenDataGridColumn TItem="Customer" Property="Address" Title="العنوان" Filterable="false" />
+                <RadzenDataGridColumn TItem="Customer" Title="آخر تحديث" Filterable="false">
+                    <Template Context="data">
+                        @data.UpdatedAt.ToLocalTime().ToString("g")
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="Customer" Title="إجراءات" Filterable="false" Sortable="false" Width="160px">
+                    <Template Context="cust">
+                        <div class="d-flex gap-1">
+                            <RadzenButton Icon="edit"
+                                          ButtonStyle="ButtonStyle.Warning"
+                                          Size="ButtonSize.Small"
+                                          Click="() => PrepareForEdit(cust)"
+                                          Tooltip="تعديل" />
+                            <RadzenButton Icon="delete"
+                                          ButtonStyle="ButtonStyle.Danger"
+                                          Size="ButtonSize.Small"
+                                          Click="() => DeleteCustomerAsync(cust.Id)"
+                                          Tooltip="حذف" />
+                        </div>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    </RadzenCard>
+</div>
+
+@code {
+    private List<Customer> customers = new();
+    private Customer customerModel = CreateEmptyCustomer();
+    private bool isEditMode;
+    private string formErrorMessage = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCustomersAsync();
+    }
+
+    private async Task LoadCustomersAsync()
+    {
+        customers = await LocalDb.Customers
+            .AsNoTracking()
+            .OrderByDescending(c => c.UpdatedAt)
+            .ToListAsync();
+    }
+
+    private async Task HandleSubmitAsync()
+    {
+        formErrorMessage = string.Empty;
+        NormalizeCustomer();
+
+        if (!ValidateCustomer())
+        {
+            return;
+        }
+
+        var duplicateIdentity = await LocalDb.Customers
+            .AsNoTracking()
+            .AnyAsync(c => c.Id != customerModel.Id && c.IdentityNumber == customerModel.IdentityNumber);
+
+        if (duplicateIdentity)
+        {
+            formErrorMessage = "رقم الهوية مسجل مسبقاً لعميل آخر.";
+            return;
+        }
+
+        customerModel.UpdatedAt = DateTime.UtcNow;
+
+        if (isEditMode)
+        {
+            LocalDb.Customers.Update(customerModel);
+            ShowNotification(NotificationSeverity.Success, "تم التحديث", "تم تحديث بيانات العميل بنجاح.");
+        }
+        else
+        {
+            customerModel.CreatedAt = DateTime.UtcNow;
+            customerModel.RegistraionDate = DateTime.UtcNow;
+            await LocalDb.Customers.AddAsync(customerModel);
+            ShowNotification(NotificationSeverity.Success, "تم الحفظ", "تمت إضافة العميل بنجاح.");
+        }
+
+        await LocalDb.SaveChangesAsync();
+        await CancelEdit();
+        await LoadCustomersAsync();
+    }
+
+    private void PrepareForEdit(Customer customer)
+    {
+        formErrorMessage = string.Empty;
+        customerModel = CloneCustomer(customer);
+        isEditMode = true;
+    }
+
+    private Task CancelEdit()
+    {
+        formErrorMessage = string.Empty;
+        customerModel = CreateEmptyCustomer();
+        isEditMode = false;
+        return Task.CompletedTask;
+    }
+
+    private async Task DeleteCustomerAsync(int id)
+    {
+        if (customerModel.Id == id)
+        {
+            await CancelEdit();
+        }
+
+        var hasContracts = await LocalDb.RentalContracts
+            .AsNoTracking()
+            .AnyAsync(c => c.CustomerId == id);
+
+        if (hasContracts)
+        {
+            ShowNotification(NotificationSeverity.Warning, "لا يمكن الحذف", "هذا العميل مرتبط بعقود تأجير.");
+            return;
+        }
+
+        var hasEquipment = await LocalDb.Equipments
+            .AsNoTracking()
+            .AnyAsync(e => e.CustomerId == id);
+
+        if (hasEquipment)
+        {
+            ShowNotification(NotificationSeverity.Warning, "لا يمكن الحذف", "هذا العميل مرتبط بمعدات مسلمة أو مؤجرة.");
+            return;
+        }
+
+        var customer = await LocalDb.Customers.FindAsync(id);
+        if (customer is null)
+        {
+            return;
+        }
+
+        LocalDb.Customers.Remove(customer);
+        await LocalDb.SaveChangesAsync();
+        await LoadCustomersAsync();
+
+        ShowNotification(NotificationSeverity.Success, "تم الحذف", "تم حذف العميل بنجاح.");
+    }
+
+    private void NormalizeCustomer()
+    {
+        customerModel.FullName = customerModel.FullName.Trim();
+        customerModel.Email = customerModel.Email.Trim();
+        customerModel.PhoneNumber = customerModel.PhoneNumber.Trim();
+        customerModel.IdentityNumber = customerModel.IdentityNumber.Trim();
+        customerModel.Address = customerModel.Address.Trim();
+    }
+
+    private bool ValidateCustomer()
+    {
+        if (string.IsNullOrWhiteSpace(customerModel.FullName) ||
+            string.IsNullOrWhiteSpace(customerModel.Email) ||
+            string.IsNullOrWhiteSpace(customerModel.PhoneNumber) ||
+            string.IsNullOrWhiteSpace(customerModel.IdentityNumber) ||
+            string.IsNullOrWhiteSpace(customerModel.Address))
+        {
+            formErrorMessage = "يرجى تعبئة جميع الحقول المطلوبة.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static Customer CloneCustomer(Customer customer) => new()
+    {
+        Id = customer.Id,
+        FullName = customer.FullName,
+        Email = customer.Email,
+        PhoneNumber = customer.PhoneNumber,
+        IdentityNumber = customer.IdentityNumber,
+        Address = customer.Address,
+        RegistraionDate = customer.RegistraionDate,
+        CreatedAt = customer.CreatedAt,
+        UpdatedAt = customer.UpdatedAt,
+        CreatedBy = customer.CreatedBy
+    };
+
+    private static Customer CreateEmptyCustomer() => new();
+
+    private void ShowNotification(NotificationSeverity severity, string summary, string detail)
+    {
+        NotificationService.Notify(new NotificationMessage
+        {
+            Severity = severity,
+            Summary = summary,
+            Detail = detail,
+            Duration = 4000
+        });
+    }
+}

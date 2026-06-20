@@ -1,0 +1,16 @@
+@inject NavigationManager Navigation
+
+<p class="visually-hidden">جارٍ التحويل...</p>
+
+@code {
+    [Parameter]
+    public string Route { get; set; } = "/";
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            Navigation.NavigateTo(Route, replace: true);
+        }
+    }
+}
